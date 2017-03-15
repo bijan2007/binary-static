@@ -75578,6 +75578,7 @@
 	'use strict';
 	
 	var BinaryPjax = __webpack_require__(309);
+	var getLanguage = __webpack_require__(305).getLanguage;
 	var localize = __webpack_require__(426).localize;
 	var url_for = __webpack_require__(310).url_for;
 	var FormManager = __webpack_require__(549);
@@ -75588,6 +75589,10 @@
 	    var clients_country = void 0;
 	
 	    var onLoad = function onLoad() {
+	        if (getLanguage() === 'JA' && !/home-jp/.test(window.location.pathname)) {
+	            BinaryPjax.load('home-jp');
+	            return;
+	        }
 	        BinarySocket.wait('website_status').then(function (response) {
 	            clients_country = response.website_status.clients_country;
 	            var form_id = '#frm_verify_email';
