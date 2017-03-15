@@ -354,6 +354,13 @@ button .barspinner.white {
   margin: 3px auto;
 }
 
+#msg_notification {
+  font-size: 0.86957rem;
+  padding: 3px 0;
+  line-height: 20px;
+  display: none;
+}
+
 *, *:after, *:before {
   transition: opacity 0.2s, color 0.2s, background 0.2s;
 }
