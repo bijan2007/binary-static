@@ -69033,7 +69033,7 @@
 	    // ----- Validation Methods -----
 	    // ------------------------------
 	    var validRequired = function validRequired(value, options, field) {
-	        if (value.length) return true;
+	        if (value.trim().length) return true;
 	        // else
 	        validators_map.req.message = field.type === 'checkbox' ? 'Please select the checkbox.' : 'This field is required.';
 	        return false;
@@ -69056,7 +69056,7 @@
 	        return !/[`~!#$%^&*)(_=+\[}{\]\\";:\?><|]+/.test(value);
 	    };
 	    var validPostCode = function validPostCode(value) {
-	        return (/^[a-zA-Z\d-]*$/.test(value)
+	        return (/^[a-zA-Z\d-\s]*$/.test(value)
 	        );
 	    };
 	    var validPhone = function validPhone(value) {
@@ -69112,7 +69112,7 @@
 	        general: { func: validGeneral, message: 'Only letters, numbers, space, hyphen, period, and apostrophe are allowed.' },
 	        address: { func: validAddress, message: 'Only letters, numbers, space, hyphen, period, and apostrophe are allowed.' },
 	        letter_symbol: { func: validLetterSymbol, message: 'Only letters, space, hyphen, period, and apostrophe are allowed.' },
-	        postcode: { func: validPostCode, message: 'Only letters, numbers, and hyphen are allowed.' },
+	        postcode: { func: validPostCode, message: 'Only letters, numbers, space, and hyphen are allowed.' },
 	        phone: { func: validPhone, message: 'Only numbers and spaces are allowed.' },
 	        email_token: { func: validEmailToken, message: 'Please submit a valid verification token.' },
 	        compare: { func: validCompare, message: 'The two passwords that you entered do not match.' },
@@ -75381,29 +75381,56 @@
 	var Client = __webpack_require__(422).Client;
 	var Header = __webpack_require__(516).Header;
 	var default_redirect_url = __webpack_require__(424).default_redirect_url;
+	var url_for = __webpack_require__(424).url_for;
 	var japanese_client = __webpack_require__(425).japanese_client;
 	var japanese_residence = __webpack_require__(425).japanese_residence;
 	
 	var Cashier = function () {
 	    'use strict';
 	
+	    var href = '';
+	    var hidden_class = 'invisible';
+	
 	    var showContent = function showContent() {
 	        Client.activate_by_client_type();
 	    };
 	
+	    var displayTopUpButton = function displayTopUpButton() {
+	        BinarySocket.wait('balance').then(function (response) {
+	            var currency = response.balance.currency;
+	            var balance = +response.balance.balance;
+	            var can_topup = currency !== 'JPY' && balance <= 1000 || currency === 'JPY' && balance <= 100000;
+	            var top_up_id = '#VRT_topup_link';
+	            var $a = $(top_up_id);
+	            var classes = ['toggle', 'button-disabled'];
+	            var new_el = { class: $a.attr('class').replace(classes[+can_topup], classes[1 - +can_topup]), html: $a.html(), id: $a.attr('id') };
+	            if (can_topup) {
+	                href = href || url_for('/cashier/top_up_virtualws');
+	                new_el.href = href;
+	            }
+	            $a.replaceWith($('<a/>', new_el));
+	            $(top_up_id).parent().removeClass(hidden_class);
+	        });
+	    };
+	
 	    var onLoad = function onLoad() {
+	        if (japanese_client() && !japanese_residence()) {
+	            BinaryPjax(default_redirect_url());
+	        }
 	        if (Client.is_logged_in()) {
-	            Header.upgrade_message_visibility(); // To handle the upgrade buttons visibility
-	            if (Client.get('is_virtual') || /CR/.test(Client.get('loginid'))) {
-	                $('#payment-agent-section').removeClass('invisible');
-	            }
-	            if (Client.has_gaming_financial_enabled()) {
-	                $('#account-transfer-section').removeClass('invisible');
-	            }
-	            if (japanese_client() && !japanese_residence()) {
-	                BinaryPjax(default_redirect_url());
-	                return;
-	            }
+	            BinarySocket.wait('authorize').then(function () {
+	                Header.upgrade_message_visibility(); // To handle the upgrade buttons visibility
+	                var is_virtual = Client.get('is_virtual');
+	                if (is_virtual) {
+	                    displayTopUpButton();
+	                }
+	                if (is_virtual || /CR/.test(Client.get('loginid'))) {
+	                    $('#payment-agent-section').removeClass(hidden_class);
+	                }
+	                if (Client.has_gaming_financial_enabled()) {
+	                    $('#account-transfer-section').removeClass(hidden_class);
+	                }
+	            });
 	        }
 	        showContent();
 	    };
