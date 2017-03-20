@@ -5211,53 +5211,43 @@ button:disabled {
   display: block;
 }
 
-/* Multi-level numbered list for legal pages */
-ol {
+/* Multilevel numbered list */
+#mt-tnc ol {
   counter-reset: item1;
   padding-left: 0.2em;
 }
-
-ol li {
+#mt-tnc ol li {
   display: block;
   position: relative;
 }
-
-ol li ol li {
+#mt-tnc ol li ol li {
   margin: 0.5em 0 0.5em 1.25em !important;
 }
-
-ol li:before {
+#mt-tnc ol li:before {
   content: counter(item1) ".";
   counter-increment: item1;
   position: absolute;
   margin-right: 100%;
   right: 10px;
-  /* space between number and text */
 }
-
-ol ol {
+#mt-tnc ol ol {
   counter-reset: item2;
 }
-
-ol ol li:before {
+#mt-tnc ol ol li:before {
   content: counter(item1) "." counter(item2) ".";
   counter-increment: item2;
 }
-
-ol ol ol {
+#mt-tnc ol ol ol {
   counter-reset: item3;
 }
-
-ol ol ol li:before {
+#mt-tnc ol ol ol li:before {
   content: counter(item1) "." counter(item2) "." counter(item3) ".";
   counter-increment: item3;
 }
-
-ol ol ol ol {
+#mt-tnc ol ol ol ol {
   counter-reset: item4;
 }
-
-ol ol ol ol li:before {
+#mt-tnc ol ol ol ol li:before {
   content: counter(item1) "." counter(item2) "." counter(item3) "." counter(item4) ".";
   counter-increment: item4;
 }
