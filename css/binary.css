@@ -3891,10 +3891,10 @@ fieldset .error-msg {
   line-height: 30px;
 }
 #mb_trading #spot-dyn.down {
-  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' width='10' height='14'%3E%3Cg%3E%3Cpolygon fill='%23cc0033' points='7 8 7 0 3 0 3 8 0 8 5 13 10 8 7 8'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' width='10' height='14'%3E%3Cg%3E%3Cpolygon fill='%2329abe2' points='7 8 7 0 3 0 3 8 0 8 5 13 10 8 7 8'/%3E%3C/g%3E%3C/svg%3E");
 }
 #mb_trading #spot-dyn.up {
-  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' width='10' height='14'%3E%3Cg%3E%3Cpolygon fill='%232e8836' points='7 5 7 13 3 13 3 5 0 5 5 0 10 5 7 5'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' width='10' height='14'%3E%3Cg%3E%3Cpolygon fill='%23cc0033' points='7 5 7 13 3 13 3 5 0 5 5 0 10 5 7 5'/%3E%3C/g%3E%3C/svg%3E");
 }
 #mb_trading #spot-dyn.still {
   background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' width='10' height='14'%3E%3Cg%3E%3Ccircle fill='%23c2c2c2' cx='5' cy='7' r='4'/%3E%3C/g%3E%3C/svg%3E");
