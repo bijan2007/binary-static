@@ -18601,7 +18601,7 @@
 	                var type = response.msg_type;
 	
 	                // store in State
-	                if (!response.echo_req.subscribe || type === 'balance') {
+	                if (!getPropertyValue(response, ['echo_req', 'subscribe']) || type === 'balance') {
 	                    State.set(['response', type], $.extend({}, response));
 	                }
 	                // resolve the send promise
@@ -36104,11 +36104,32 @@
 	    return date.format('DD MMM, YYYY');
 	};
 	
+	function padLeft(text, len, char) {
+	    text = String(text || '');
+	    return text.length >= len ? text : '' + Array(len - text.length + 1).join(char) + text;
+	}
+	
+	function compareBigUnsignedInt(a, b) {
+	    a = numberToString(a);
+	    b = numberToString(b);
+	    var max_length = Math.max(a.length, b.length);
+	    a = padLeft(a, max_length, '0');
+	    b = padLeft(b, max_length, '0');
+	    return a > b ? 1 : a < b ? -1 : 0; // lexicographical comparison
+	}
+	
+	function numberToString(n) {
+	    return typeof n === 'number' ? String(n) : n;
+	}
+	
 	module.exports = {
 	    toISOFormat: toISOFormat,
 	    toReadableFormat: toReadableFormat,
 	    toTitleCase: toTitleCase,
-	    addComma: addComma
+	    addComma: addComma,
+	    padLeft: padLeft,
+	
+	    compareBigUnsignedInt: compareBigUnsignedInt
 	};
 
 /***/ },
@@ -41140,6 +41161,7 @@
 
 	'use strict';
 	
+	var moment = __webpack_require__(304);
 	var displayPriceMovement = __webpack_require__(455).displayPriceMovement;
 	var countDecimalPlaces = __webpack_require__(455).countDecimalPlaces;
 	var isVisible = __webpack_require__(427).isVisible;
@@ -41230,7 +41252,8 @@
 	            lowBarrierElement = document.getElementById('barrier_low');
 	        var value = void 0;
 	
-	        if (unit && (!isVisible(unit) || unit.value !== 'd') && currentTick && !isNaN(currentTick)) {
+	        var end_time = document.getElementById('expiry_date');
+	        if (unit && (!isVisible(unit) || unit.value !== 'd') && currentTick && !isNaN(currentTick) && end_time && (!isVisible(end_time) || moment(end_time.getAttribute('data-value')).isBefore(moment().add(1, 'day'), 'day'))) {
 	            var decimalPlaces = countDecimalPlaces(currentTick);
 	            if (indicativeBarrierTooltip && isVisible(indicativeBarrierTooltip)) {
 	                var barrierValue = isNaN(parseFloat(barrierElement.value)) ? 0 : parseFloat(barrierElement.value);
@@ -43836,6 +43859,7 @@
 	            setNow(); // start time
 	            date_start.setAttribute('disabled', 'disabled');
 	            expiry_time.hide();
+	            Barriers.display();
 	            processTradingTimesRequest(end_date_iso);
 	        } else {
 	            date_start.removeAttribute('disabled');
@@ -43847,10 +43871,9 @@
 	            Durations.setTime(expiry_time.value);
 	            Defaults.set('expiry_time', Defaults.get('expiry_time') || expiry_time.value);
 	            expiry_time.show();
+	            Barriers.display();
 	            Price.processPriceRequest();
 	        }
-	
-	        Barriers.display();
 	    };
 	
 	    var processTradingTimesRequest = function processTradingTimesRequest(date) {
@@ -68521,6 +68544,7 @@
 	'use strict';
 	
 	var localize = __webpack_require__(429).localize;
+	var compareBigUnsignedInt = __webpack_require__(432).compareBigUnsignedInt;
 	
 	var Validation = function () {
 	    'use strict';
@@ -68554,7 +68578,7 @@
 	                    field.$ = $form.find(field.selector);
 	                    if (!field.$.length || !field.validations) return;
 	
-	                    field.type = getFieldType(field.$);
+	                    field.type = getFieldType($(field.$[0])); // also handles multiple results
 	                    field.form = form_selector;
 	                    if (field.msg_element) {
 	                        field.$error = $form.find(field.msg_element);
@@ -68570,6 +68594,11 @@
 	                    if (event) {
 	                        field.$.unbind(event).on(event, function () {
 	                            checkField(field);
+	                            if (field.re_check_field) {
+	                                checkField(forms[form_selector].fields.find(function (fld) {
+	                                    return fld.selector === field.re_check_field;
+	                                }));
+	                            }
 	                        });
 	                    }
 	                });
@@ -68632,6 +68661,10 @@
 	    };
 	
 	    var validNumber = function validNumber(value, options) {
+	        if (options.allow_empty && value.length === 0) {
+	            return true;
+	        }
+	
 	        var is_ok = true,
 	            message = '';
 	
@@ -68641,10 +68674,13 @@
 	        } else if (options.type === 'float' && options.decimals && !new RegExp('^\\d+(\\.\\d{' + options.decimals.replace(/ /g, '') + '})?$').test(value)) {
 	            is_ok = false;
 	            message = localize('Only [_1] decimal points are allowed.', [options.decimals]);
-	        } else if (options.min && +value < +options.min) {
+	        } else if ('min' in options && 'max' in options && (+value < +options.min || compareBigUnsignedInt(value, options.max) === 1)) {
+	            is_ok = false;
+	            message = localize('Should be between [_1] and [_2]', [options.min, options.max]);
+	        } else if ('min' in options && +value < +options.min) {
 	            is_ok = false;
 	            message = localize('Should be more than [_1]', [options.min]);
-	        } else if (options.max && +value > +options.max) {
+	        } else if ('max' in options && compareBigUnsignedInt(value, options.max) === 1) {
 	            is_ok = false;
 	            message = localize('Should be less than [_1]', [options.max]);
 	        }
@@ -68697,7 +68733,7 @@
 	                type = 'length';
 	                options = pass_length;
 	            } else {
-	                var validator = validators_map[type].func;
+	                var validator = type === 'custom' ? options.func : validators_map[type].func;
 	                field.is_ok = validator(getFieldValue(field), options, field);
 	            }
 	
@@ -68972,7 +69008,7 @@
 	
 	    var validations = {
 	        new_account: [{ selector: fields.new_account.txt_name.id, validations: ['req', 'letter_symbol', ['length', { min: 2, max: 30 }]] }, { selector: fields.new_account.txt_main_pass.id, validations: ['req', 'password'] }, { selector: fields.new_account.txt_re_main_pass.id, validations: ['req', ['compare', { to: fields.new_account.txt_main_pass.id }]] }, { selector: fields.new_account.txt_investor_pass.id, validations: ['req', 'password', ['not_equal', { to: fields.new_account.txt_main_pass.id, name1: 'Main password', name2: 'Investor password' }]] }, { selector: fields.new_account.ddl_leverage.id, validations: ['req'] }, { selector: fields.new_account.chk_tnc.id, validations: [['req', { message: 'Please accept the terms and conditions.' }]] }],
-	        password_change: [{ selector: fields.password_change.txt_old_password.id, validations: ['req'] }, { selector: fields.password_change.txt_new_password.id, validations: ['req', 'password', ['not_equal', { to: fields.password_change.txt_old_password.id, name1: 'Current password', name2: 'New password' }]] }, { selector: fields.password_change.txt_re_new_password.id, validations: ['req', ['compare', { to: fields.password_change.txt_new_password.id }]] }],
+	        password_change: [{ selector: fields.password_change.txt_old_password.id, validations: ['req'] }, { selector: fields.password_change.txt_new_password.id, validations: ['req', 'password', ['not_equal', { to: fields.password_change.txt_old_password.id, name1: 'Current password', name2: 'New password' }]], re_check_field: fields.password_change.txt_re_new_password.id }, { selector: fields.password_change.txt_re_new_password.id, validations: ['req', ['compare', { to: fields.password_change.txt_new_password.id }]] }],
 	        deposit: [{ selector: fields.deposit.txt_amount.id, validations: ['req', ['number', { type: 'float', min: 1, max: 20000 }]] }],
 	        withdrawal: [{ selector: fields.withdrawal.txt_main_pass.id, validations: ['req'] }, { selector: fields.withdrawal.txt_amount.id, validations: ['req', ['number', { type: 'float', min: 1, max: 20000 }]] }]
 	    };
@@ -73305,7 +73341,7 @@
 	var GTM = __webpack_require__(473);
 	var localize = __webpack_require__(429).localize;
 	var Login = __webpack_require__(474);
-	var Page = __webpack_require__(593);
+	var Page = __webpack_require__(588);
 	var defaultRedirectUrl = __webpack_require__(424).defaultRedirectUrl;
 	
 	var BinaryLoader = function () {
@@ -73426,32 +73462,32 @@
 	var PaymentAgentTransfer = __webpack_require__(555);
 	var Portfolio = __webpack_require__(445);
 	var ProfitTable = __webpack_require__(496);
-	var APITokenWS = __webpack_require__(557);
-	var AuthorisedApps = __webpack_require__(564);
-	var CashierPassword = __webpack_require__(568);
-	var FinancialAssessment = __webpack_require__(569);
-	var IPHistory = __webpack_require__(570);
-	var Limits = __webpack_require__(574);
-	var Settings = __webpack_require__(577);
-	var SelfExclusionWS = __webpack_require__(578);
-	var SettingsDetailsWS = __webpack_require__(579);
+	var APIToken = __webpack_require__(557);
+	var AuthorisedApps = __webpack_require__(559);
+	var CashierPassword = __webpack_require__(563);
+	var FinancialAssessment = __webpack_require__(564);
+	var IPHistory = __webpack_require__(565);
+	var Limits = __webpack_require__(569);
+	var Settings = __webpack_require__(572);
+	var SelfExclusion = __webpack_require__(573);
+	var SettingsDetailsWS = __webpack_require__(574);
 	var Statement = __webpack_require__(500);
-	var TopUpVirtual = __webpack_require__(581);
-	var LostPassword = __webpack_require__(582);
+	var TopUpVirtual = __webpack_require__(576);
+	var LostPassword = __webpack_require__(577);
 	var MetaTrader = __webpack_require__(515);
-	var FinancialAccOpening = __webpack_require__(583);
-	var JapanAccOpening = __webpack_require__(586);
-	var RealAccOpening = __webpack_require__(587);
-	var VirtualAccOpening = __webpack_require__(588);
-	var ResetPassword = __webpack_require__(590);
+	var FinancialAccOpening = __webpack_require__(578);
+	var JapanAccOpening = __webpack_require__(581);
+	var RealAccOpening = __webpack_require__(582);
+	var VirtualAccOpening = __webpack_require__(583);
+	var ResetPassword = __webpack_require__(585);
 	var TNCApproval = __webpack_require__(546);
 	
 	var CashierJP = __webpack_require__(521);
-	var KnowledgeTest = __webpack_require__(591);
+	var KnowledgeTest = __webpack_require__(586);
 	
 	var pages_config = {
 	    account_transfer: { module: AccountTransfer, is_authenticated: true, only_real: true },
-	    api_tokenws: { module: APITokenWS, is_authenticated: true },
+	    api_tokenws: { module: APIToken, is_authenticated: true },
 	    assessmentws: { module: FinancialAssessment, is_authenticated: true, only_real: true },
 	    asset_indexws: { module: AssetIndexUI },
 	    authenticate: { module: Authenticate, is_authenticated: true, only_real: true },
@@ -73486,7 +73522,7 @@
 	    regulation: { module: Regulation },
 	    reset_passwordws: { module: ResetPassword, not_authenticated: true },
 	    securityws: { module: Settings, is_authenticated: true },
-	    self_exclusionws: { module: SelfExclusionWS, is_authenticated: true, only_real: true },
+	    self_exclusionws: { module: SelfExclusion, is_authenticated: true, only_real: true },
 	    settingsws: { module: Settings, is_authenticated: true },
 	    signup: { module: StaticPages.AffiliateSignup },
 	    statementws: { module: Statement, is_authenticated: true },
@@ -74020,14 +74056,16 @@
 	                    // otherwise take the value
 	                    value = field.value ? typeof field.value === 'function' ? field.value() : field.value : native ? val : $selector.attr('data-value') || (/lbl_/.test(key) ? field.value || $selector.text() : $selector.is(':checkbox') ? $selector.is(':checked') ? 1 : 0 : Array.isArray(val) ? val.join(',') : val || '');
 	
-	                    key = key.replace(/lbl_|#|\./g, '');
-	                    if (field.parent_node) {
-	                        if (!data[field.parent_node]) {
-	                            data[field.parent_node] = {};
+	                    if (!(field.exclude_if_empty && val.length === 0)) {
+	                        key = key.replace(/lbl_|#|\./g, '');
+	                        if (field.parent_node) {
+	                            if (!data[field.parent_node]) {
+	                                data[field.parent_node] = {};
+	                            }
+	                            data[field.parent_node][key] = value;
+	                        } else {
+	                            data[key] = value;
 	                        }
-	                        data[field.parent_node][key] = value;
-	                    } else {
-	                        data[key] = value;
 	                    }
 	                }
 	            }
@@ -74273,13 +74311,33 @@
 	        if (hash) $.scrollTo($(hash));
 	    };
 	
+	    var scrollToTop = function scrollToTop() {
+	        var is_displaying = false;
+	        var $scrollup = $('#scrollup');
+	        $(document).scroll(function () {
+	            if ($(this).scrollTop() > 100) {
+	                if (is_displaying) return;
+	                $scrollup.fadeIn();
+	                is_displaying = true;
+	            } else if (is_displaying) {
+	                $scrollup.fadeOut();
+	                is_displaying = false;
+	            }
+	        });
+	
+	        $scrollup.click(function () {
+	            $.scrollTo(0, 500);
+	        });
+	    };
+	
 	    return {
 	        sidebar_scroll: sidebar_scroll,
 	        offScroll: function offScroll() {
 	            $(window).off('scroll');
 	        },
 	        goToHashSection: goToHashSection,
-	        scrollToHashSection: scrollToHashSection
+	        scrollToHashSection: scrollToHashSection,
+	        scrollToTop: scrollToTop
 	    };
 	}();
 	
@@ -75565,7 +75623,7 @@
 	    var form_id = '#frm_change_password';
 	
 	    var init = function init() {
-	        FormManager.init(form_id, [{ selector: '#old_password', validations: ['req', ['length', { min: 6, max: 25 }]] }, { selector: '#new_password', validations: ['req', 'password', ['not_equal', { to: '#old_password', name1: 'Current password', name2: 'New password' }]] }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#new_password' }]], exclude_request: 1 }, { request_field: 'change_password', value: 1 }]);
+	        FormManager.init(form_id, [{ selector: '#old_password', validations: ['req', ['length', { min: 6, max: 25 }]] }, { selector: '#new_password', validations: ['req', 'password', ['not_equal', { to: '#old_password', name1: 'Current password', name2: 'New password' }]], re_check_field: '#repeat_password' }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#new_password' }]], exclude_request: 1 }, { request_field: 'change_password', value: 1 }]);
 	        FormManager.handleSubmit({
 	            form_selector: form_id,
 	            fnc_response_handler: handler
@@ -75857,39 +75915,22 @@
 	var BinaryPjax = __webpack_require__(420);
 	var showLocalTimeOnHover = __webpack_require__(447).showLocalTimeOnHover;
 	var localize = __webpack_require__(429).localize;
-	var showLoadingImage = __webpack_require__(417).showLoadingImage;
 	var FlexTableUI = __webpack_require__(558).FlexTableUI;
 	var Content = __webpack_require__(456).Content;
 	var japanese_client = __webpack_require__(425).japanese_client;
-	var ValidateV2 = __webpack_require__(559).ValidateV2;
-	var customError = __webpack_require__(561).customError;
-	var bind_validation = __webpack_require__(561).bind_validation;
-	var ValidationUI = __webpack_require__(561).ValidationUI;
-	var dv = __webpack_require__(560);
+	var FormManager = __webpack_require__(537);
+	var toTitleCase = __webpack_require__(432).toTitleCase;
 	
-	var APITokenWS = function () {
+	var APIToken = function () {
 	    'use strict';
 	
-	    var errorClass = 'errorfield';
-	    var hideClass = 'invisible';
-	    var tableContainer = '#tokens_list';
-	    var maxTokens = 30;
+	    var hidden_class = 'invisible';
+	    var error_class = 'errorfield';
+	    var form_id = '#token_form';
+	    var max_tokens = 30;
 	
-	    var hide = function hide(s) {
-	        return function () {
-	            $(s).addClass(hideClass);
-	        };
-	    };
-	    var show = function show(s) {
-	        return function () {
-	            $(s).removeClass(hideClass);
-	        };
-	    };
-	
-	    var hideForm = hide('#token_form');
-	    var showForm = show('#token_form');
-	    var hideTable = hide(tableContainer);
-	    var showTable = show(tableContainer);
+	    var $table_container = void 0,
+	        $form = void 0;
 	
 	    var onLoad = function onLoad() {
 	        if (japanese_client()) {
@@ -75898,49 +75939,38 @@
 	        }
 	
 	        Content.populate();
-	        BinarySocket.init({
-	            onmessage: function onmessage(msg) {
-	                var response = JSON.parse(msg.data);
-	                if (response.msg_type === 'api_token') {
-	                    responseHandler(response);
-	                }
-	            }
-	        });
 	
-	        showLoadingImage($(tableContainer));
-	        BinarySocket.send({ api_token: 1 });
-	        bind_validation.simple($('#token_form')[0], {
-	            schema: getSchema(),
-	            stop: function stop(info) {
-	                ValidationUI.clear();
-	                displayErrors(info.errors);
-	            },
-	            submit: function submit(e, info) {
-	                e.preventDefault();
-	                e.stopPropagation();
-	                if (info.errors.length > 0) {
-	                    return;
-	                }
-	                createToken(info.values);
-	            }
+	        $table_container = $('#tokens_list');
+	        $form = $(form_id);
+	
+	        BinarySocket.send({ api_token: 1 }).then(populateTokensList);
+	
+	        var regex_msg = Content.errorMessage('reg', [Content.localize().textLetters, Content.localize().textNumbers, Content.localize().textSpace, '_']);
+	        FormManager.init(form_id, [{ selector: '#txt_name', request_field: 'new_token', validations: ['req', ['regular', { regex: /^[\w\s]+$/, message: regex_msg }], ['length', { min: 2, max: 32 }]] }, { selector: '[id*="chk_scopes_"]', request_field: 'new_token_scopes', validations: [['req', { message: localize('Please select at least one scope') }]], value: getScopes }, { request_field: 'api_token', value: 1 }]);
+	        FormManager.handleSubmit({
+	            form_selector: form_id,
+	            fnc_response_handler: newTokenResponse,
+	            enable_button: true
 	        });
 	    };
 	
-	    var getSchema = function getSchema() {
-	        var V2 = ValidateV2;
-	        var letters = Content.localize().textLetters;
-	        var numbers = Content.localize().textNumbers;
-	        return {
-	            scopes: [function (v) {
-	                return dv.ok(v || []);
-	            }, customError(V2.required, localize('Please select at least one scope'))],
-	            name: [function (v) {
-	                return dv.ok(v.trim());
-	            }, V2.required, V2.lengthRange(2, 32), V2.regex(/^\w+$/, [letters, numbers, '_'])]
-	        };
+	    var newTokenResponse = function newTokenResponse(response) {
+	        showSubmitSuccess('New token created.');
+	        $('#txt_name').val('');
+	
+	        populateTokensList(response);
 	    };
 	
-	    var responseHandler = function responseHandler(response) {
+	    var getScopes = function getScopes() {
+	        return $form.find('[id*="chk_scopes_"]:checked').map(function () {
+	            return $(this).val();
+	        }).get();
+	    };
+	
+	    // -----------------------
+	    // ----- Tokens List -----
+	    // -----------------------
+	    var populateTokensList = function populateTokensList(response) {
 	        if ('error' in response) {
 	            showErrorMessage(response.error.message);
 	            return;
@@ -75948,58 +75978,31 @@
 	
 	        clearMessages();
 	
-	        var api_token = response.api_token,
-	            tokens = api_token.tokens;
-	        var newToken = void 0;
-	
-	        if (tokens.length >= maxTokens) {
-	            hideForm();
-	            showErrorMessage(localize('The maximum number of tokens ([_1]) has been reached.', [maxTokens]));
-	        } else {
-	            showForm();
-	        }
-	
-	        if ('new_token' in api_token) {
-	            showSubmitSuccess('New token created.');
-	            $('#txtName').val('');
-	            newToken = response.echo_req.new_token;
-	        } else if ('delete_token' in api_token) {
-	            var deleted = response.echo_req.delete_token;
-	            $('#' + deleted).removeClass('new').addClass('deleting').fadeOut(700, function () {
-	                $(this).remove();
-	                populateTokensList(tokens);
-	            });
-	            return;
-	        }
-	
-	        populateTokensList(tokens, newToken);
-	    };
-	
-	    // -----------------------
-	    // ----- Tokens List -----
-	    // -----------------------
-	    var populateTokensList = function populateTokensList(tokens, newToken) {
-	        var $tableContainer = $(tableContainer);
+	        var tokens = response.api_token.tokens;
 	        if (tokens.length === 0) {
-	            hideTable();
+	            $table_container.addClass(hidden_class);
 	            return;
+	        } else if (tokens.length >= max_tokens) {
+	            $form.addClass(hidden_class);
+	            showErrorMessage(localize('The maximum number of tokens ([_1]) has been reached.', [max_tokens]));
+	        } else {
+	            $form.removeClass(hidden_class);
 	        }
-	        showTable();
-	        $tableContainer.empty();
+	
+	        $table_container.removeClass(hidden_class).empty();
 	
 	        var headers = ['Name', 'Token', 'Scopes', 'Last Used', 'Action'];
-	        var columns = ['name', 'token', 'scopes', 'last-used', 'action'];
 	        new FlexTableUI({
 	            id: 'tokens_table',
-	            container: tableContainer,
-	            header: headers.map(function (s) {
-	                return localize(s);
+	            container: $table_container,
+	            header: headers.map(localize),
+	            cols: headers.map(function (title) {
+	                return title.toLowerCase().replace(/\s/g, '-');
 	            }),
-	            cols: columns,
 	            data: tokens,
 	            formatter: formatToken,
 	            style: function style($row, token) {
-	                if (token.display_name === newToken) {
+	                if (token.display_name === response.echo_req.new_token) {
 	                    $row.addClass('new');
 	                }
 	                $row.attr('id', token.token);
@@ -76011,7 +76014,7 @@
 	
 	    var createDeleteButton = function createDeleteButton($row, token) {
 	        var message = localize('Are you sure that you want to permanently delete token');
-	        var $button = $('<button/>', { class: 'button btnDelete', text: localize('Delete') });
+	        var $button = $('<button/>', { class: 'button btn_delete', text: localize('Delete') });
 	        $button.click(function (e) {
 	            e.preventDefault();
 	            e.stopPropagation();
@@ -76020,41 +76023,24 @@
 	            }
 	            deleteToken(token.token);
 	        });
-	        $row.children('.action').html($('<span/>', { class: 'button' }).append($button));
-	    };
-	
-	    var capitalise = function capitalise(v) {
-	        return v.charAt(0).toUpperCase() + v.slice(1);
+	        $row.children('.action').html($button);
 	    };
 	
 	    var formatToken = function formatToken(token) {
-	        var lastUsed = token.last_used ? token.last_used + ' GMT' : localize('Never Used');
-	        var scopes = token.scopes.map(capitalise);
-	        return [token.display_name, token.token, scopes.join(', '), lastUsed, ''];
-	    };
-	
-	    var displayErrors = function displayErrors(errors) {
-	        errors.forEach(function (err) {
-	            var sel = err.ctx === 'name' ? '#txtName' : '#scopes';
-	            ValidationUI.draw(sel, err.err);
-	        });
-	    };
-	
-	    // ---------------------------
-	    // ----- Actions Process -----
-	    // ---------------------------
-	    var createToken = function createToken(params) {
-	        BinarySocket.send({
-	            api_token: 1,
-	            new_token: params.name,
-	            new_token_scopes: params.scopes
-	        });
+	        var last_used = token.last_used ? token.last_used + ' GMT' : localize('Never Used');
+	        var scopes = token.scopes.map(toTitleCase);
+	        return [token.display_name, token.token, scopes.join(', '), last_used, ''];
 	    };
 	
 	    var deleteToken = function deleteToken(token) {
 	        BinarySocket.send({
 	            api_token: 1,
 	            delete_token: token
+	        }).then(function (response) {
+	            $('#' + response.echo_req.delete_token).removeClass('new').addClass('deleting').fadeOut(700, function () {
+	                $(this).remove();
+	                populateTokensList(response);
+	            });
 	        });
 	    };
 	
@@ -76062,16 +76048,15 @@
 	    // ----- Message Functions -----
 	    // -----------------------------
 	    var showErrorMessage = function showErrorMessage(msg) {
-	        $('#token_message').removeClass(hideClass).find('p').attr('class', errorClass).html(localize(msg));
+	        $('#token_message').removeClass(hidden_class).find('p').attr('class', error_class).html(localize(msg));
 	    };
 	
 	    var showSubmitSuccess = function showSubmitSuccess(msg) {
-	        $('#formMessage').attr('class', 'success-msg').html('<ul class="checked"><li>' + localize(msg) + '</li></ul>').css('display', 'block').delay(3000).fadeOut(1000);
+	        $('#msg_form').attr('class', 'success-msg').html('<ul class="checked"><li>' + localize(msg) + '</li></ul>').css('display', 'block').delay(3000).fadeOut(1000);
 	    };
 	
 	    var clearMessages = function clearMessages() {
-	        $('#token_message').addClass(hideClass);
-	        $('#formMessage').html('');
+	        $('#token_message').addClass(hidden_class);
 	    };
 	
 	    return {
@@ -76079,7 +76064,7 @@
 	    };
 	}();
 	
-	module.exports = APITokenWS;
+	module.exports = APIToken;
 
 /***/ },
 /* 558 */
@@ -76149,518 +76134,10 @@
 
 	'use strict';
 	
-	function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } else { return Array.from(arr); } }
-	
-	var template = __webpack_require__(417).template;
-	var moment = __webpack_require__(304);
-	var dv = __webpack_require__(560);
-	var Content = __webpack_require__(456).Content;
-	var localize = __webpack_require__(429).localize;
-	
-	var ValidateV2 = function () {
-	    var err = function err() {
-	        return Content.errorMessage.apply(Content, arguments);
-	    };
-	
-	    // We don't have access to the localised messages at the init-time
-	    // of this module. Solution: delay execution with 'unwrappables'.
-	    // Objects that have an `.unwrap` method.
-	    //
-	    // unwrap({unwrap: () => 1}) == 1
-	    // unwrap(1) == 1
-	    //
-	    var _unwrap = function _unwrap(a) {
-	        return a.unwrap ? a.unwrap() : a;
-	    };
-	
-	    var local = function local(value) {
-	        return { unwrap: function unwrap() {
-	                return localize(value);
-	            } };
-	    };
-	
-	    var localKey = function localKey(value) {
-	        return { unwrap: function unwrap() {
-	                return Content.localize()[value];
-	            } };
-	    };
-	
-	    var msg = function msg() {
-	        var args = [].slice.call(arguments);
-	        return { unwrap: function unwrap() {
-	                return err.apply(undefined, _toConsumableArray(args.map(_unwrap)));
-	            } };
-	    };
-	
-	    var check = function check(fn, error) {
-	        return function (value) {
-	            return fn(value) ? dv.ok(value) : dv.fail(_unwrap(error));
-	        };
-	    };
-	
-	    // TEST THESE
-	    var validEmail = function validEmail(email) {
-	        var regexp = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
-	        return regexp.test(email);
-	    };
-	
-	    var notEmpty = function notEmpty(value) {
-	        return value.length > 0;
-	    };
-	
-	    var validPasswordLength = function validPasswordLength(value) {
-	        return value.length >= 6 && value.length <= 25;
-	    };
-	
-	    var validPasswordChars = function validPasswordChars(value) {
-	        return (/[0-9]+/.test(value) && /[A-Z]+/.test(value) && /[a-z]+/.test(value)
-	        );
-	    };
-	
-	    var noSymbolsInPassword = function noSymbolsInPassword(value) {
-	        return (/^[!-~]+$/.test(value)
-	        );
-	    };
-	
-	    var validToken = function validToken(value) {
-	        return value.length === 48;
-	    };
-	
-	    // CAN BE USED IN UI
-	    var required = check(notEmpty, msg('req'));
-	    var email = check(validEmail, msg('valid', local('email address')));
-	    var token = check(validToken, msg('valid', local('verification token')));
-	    var password = function password(value) {
-	        return dv.first(value, [password.len, password.allowed, password.symbols]);
-	    };
-	
-	    password.len = check(validPasswordLength, msg('range', '6-25'));
-	    password.allowed = check(validPasswordChars, local('Password should have lower and uppercase letters with numbers.'));
-	    password.symbols = check(noSymbolsInPassword, msg('valid', localKey('textPassword')));
-	
-	    var regex = function regex(regexp, allowed) {
-	        return function (str) {
-	            return regexp.test(str) ? dv.ok(str) : dv.fail(err('reg', allowed));
-	        };
-	    };
-	
-	    var lengthRange = function lengthRange(start, end) {
-	        var range = template('([_1]-[_2])', [start, end]);
-	        return function (str) {
-	            var len = str.length;
-	            return len >= start && len <= end ? dv.ok(str) : dv.fail(err('range', range));
-	        };
-	    };
-	
-	    var momentFmt = function momentFmt(format, error) {
-	        return function (str) {
-	            var date = moment(str, format, true);
-	            return date.isValid() ? dv.ok(date) : dv.fail(error);
-	        };
-	    };
-	
-	    return {
-	        err: err,
-	        momentFmt: momentFmt,
-	        required: required,
-	        password: password,
-	        email: email,
-	        token: token,
-	        regex: regex,
-	        lengthRange: lengthRange
-	    };
-	}();
-	
-	module.exports = {
-	    ValidateV2: ValidateV2
-	};
-
-/***/ },
-/* 560 */
-/***/ function(module, exports) {
-
-	"use strict";
-	
-	var dv = function () {
-	  function ok(v) {
-	    if (!(this instanceof ok)) return new ok(v);
-	    this.value = v;
-	  }
-	
-	  ok.prototype = {
-	    isOk: true,
-	    then: function then(f) {
-	      return f(this.value);
-	    },
-	    fmap: function fmap(f) {
-	      return this;
-	    },
-	    ap: function ap(o) {
-	      return o.isOk ? this : o;
-	    }
-	  };
-	
-	  function fail(v) {
-	    if (!(this instanceof fail)) return new fail(v);
-	    this.value = [v];
-	  }
-	
-	  fail.of = function (v) {
-	    var f = fail();
-	    f.value = v;
-	    return f;
-	  };
-	
-	  fail.prototype = {
-	    isOk: false,
-	    then: function then(f) {
-	      return this;
-	    },
-	    fmap: function fmap(f) {
-	      return fail.of(this.value.map(f));
-	    },
-	    ap: function ap(o) {
-	      return o.isOk ? this : fail.of(this.value.concat(o.value));
-	    }
-	  };
-	
-	  function combine(v, xs) {
-	    return xs.reduce(function (prev, curr) {
-	      return prev.ap(curr);
-	    }, ok(v));
-	  }
-	
-	  function check(fn, err) {
-	    return function (v) {
-	      return fn.apply(this, arguments) ? ok(v) : fail(err);
-	    };
-	  }
-	
-	  function first(v, xs) {
-	    var u = ok(v);
-	    for (var i = 0; i < xs.length; i++) {
-	      u = u.then(xs[i]);
-	      if (!u.isOk) break;
-	    }
-	    return u;
-	  }
-	
-	  return {
-	    ok: ok,
-	    fail: fail,
-	    combine: combine,
-	    check: check,
-	    first: first
-	  };
-	}();
-	
-	module.exports = dv;
-
-/***/ },
-/* 561 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var done_typing = __webpack_require__(562).done_typing;
-	var formToObj = __webpack_require__(563).formToObj;
-	var dv = __webpack_require__(560);
-	var localize = __webpack_require__(429).localize;
-	
-	var ValidationUI = {
-	    clear: function clear() {
-	        $('.errorfield[data-is-error-field]').remove();
-	    },
-	    draw: function draw(selector, message) {
-	        var $parent = $(selector).parent();
-	        var $p = $('<p/>', {
-	            class: 'errorfield',
-	            text: localize(message)
-	        });
-	        $p.attr('data-is-error-field', true);
-	        $parent.append($p);
-	    }
-	};
-	
-	/**
-	 * Replaces error messages returned by a validator by the given
-	 * error message `err`. Only use this on validators with one
-	 * error message.
-	 */
-	function customError(fn, err) {
-	    return function (value) {
-	        var rv = fn(value);
-	        if (!rv.isOk) rv.value = [err];
-	        return rv;
-	    };
-	}
-	
-	function withContext(ctx) {
-	    return function (msg) {
-	        return {
-	            ctx: ctx,
-	            err: msg
-	        };
-	    };
-	}
-	
-	/**
-	 * Validates data given a schema.
-	 *
-	 * @param data    An object.
-	 * @param schema  An object in the form {key: Array}, where the Array
-	 *                contains functions which accept two arguments- the current
-	 *                value and the objet being validated, and return either dv.ok
-	 *                or dv.fail.
-	 * @returns {Object}  {errors: errors, values: values, raw: data} where
-	 *                    errors is an array of {ctx: key, err: message} objects,
-	 *                    values is an object with the collected successful values,
-	 *                    raw is the data passed in.
-	 */
-	function validate_object(data, schema) {
-	    var keys = Object.keys(schema),
-	        values = {};
-	    var rv = dv.combine([], keys.map(function (ctx) {
-	        var res = dv.ok(data[ctx]);
-	        var fns = schema[ctx];
-	        for (var i = 0; i < fns.length; i++) {
-	            res = fns[i](res.value, data);
-	            if (!res.isOk) return res.fmap(withContext(ctx));
-	        }
-	        values[ctx] = res.value;
-	        return res;
-	    }));
-	    return {
-	        errors: rv.value,
-	        values: values,
-	        raw: data
-	    };
-	}
-	
-	function stripTrailing(name) {
-	    return (name || '').replace(/\[]$/, '');
-	}
-	
-	/**
-	 * Helper for enabling form validation when the user starts and stops typing.
-	 *
-	 * @param form             A form Element (not JQuery object).
-	 * @param config           Configuration object.
-	 * @param config.extract   Returns the current data on the form.
-	 * @param config.validate  Receives the current data returns an object with
-	 *                         {values: Object, errors: [{ctx: key, err: msg}...]}.
-	 * @param config.stop      Called when the user stops typing with the return
-	 *                         value of `config.validate`.
-	 * @param config.submit    Called on submit event with event and validation state.
-	 */
-	function bind_validation(form, config) {
-	    var extract = config.extract,
-	        validate = config.validate,
-	        stop = config.stop,
-	        submit = config.submit,
-	        seen = {};
-	
-	    var onStart = function onStart(ev) {
-	        seen[stripTrailing(ev.target.name)] = true;
-	    };
-	
-	    var onStop = function onStop() {
-	        var data = extract(),
-	            validation = validate(data);
-	        validation.errors = validation.errors.filter(function (err) {
-	            return seen[err.ctx];
-	        });
-	        stop(validation);
-	    };
-	
-	    form.addEventListener('submit', function (ev) {
-	        var data = extract(),
-	            validation = validate(data);
-	        stop(validation);
-	        submit(ev, validation);
-	    });
-	
-	    form.addEventListener('change', function (ev) {
-	        onStart(ev);
-	        onStop();
-	    });
-	    done_typing(form, {
-	        start: onStart,
-	        stop: onStop
-	    });
-	}
-	
-	/**
-	 * Generates (and binds) a config for the given form.
-	 *
-	 * @param form  Form element.
-	 * @param opts  Config object.
-	 * @param opts.extract   Optional. Defaults to `formToObj(form)`.
-	 * @param opts.submit    Required.
-	 * @param opts.validate  Optional. If you do not specify this then opts.schema
-	 *                       is required.
-	 * @param opts.schema    See above.
-	 * @param opts.stop      Optional.
-	 *
-	 */
-	bind_validation.simple = function (form, opts) {
-	    bind_validation(form, {
-	        submit: opts.submit,
-	        extract: opts.extract || function () {
-	            return formToObj(form);
-	        },
-	        validate: opts.validate || function (data) {
-	            return validate_object(data, opts.schema);
-	        },
-	        stop: opts.stop || function (validation) {
-	            ValidationUI.clear();
-	            validation.errors.forEach(function (err) {
-	                var sel = '[name=' + stripTrailing(err.ctx) + ']';
-	                ValidationUI.draw(sel, err.err);
-	            });
-	        }
-	    });
-	};
-	
-	module.exports = {
-	    ValidationUI: ValidationUI,
-	    customError: customError,
-	    validate_object: validate_object,
-	    bind_validation: bind_validation
-	};
-
-/***/ },
-/* 562 */
-/***/ function(module, exports) {
-
-	'use strict';
-	
-	function done_typing(elem, config) {
-	    var onStart = config.start || function () {};
-	    var onStop = config.stop || function () {};
-	    var delay = config.delay || 200;
-	
-	    var stopped = true;
-	    var timeout = null;
-	
-	    function down(ev) {
-	        if (stopped) {
-	            onStart(ev);
-	            stopped = false;
-	        }
-	        clearTimeout(timeout);
-	    }
-	
-	    function up(ev) {
-	        timeout = setTimeout(function () {
-	            timeout = null;
-	            stopped = true;
-	            onStop(ev);
-	        }, delay);
-	    }
-	
-	    elem.addEventListener('keydown', down);
-	    elem.addEventListener('keyup', up);
-	};
-	
-	module.exports = {
-	    done_typing: done_typing
-	};
-
-/***/ },
-/* 563 */
-/***/ function(module, exports) {
-
-	'use strict';
-	
-	function formToObj(form) {
-	  var fields = formToArr(form);
-	
-	  fields.sort(function (a, b) {
-	    return a.name.localeCompare(b.name);
-	  });
-	
-	  return fields.reduce(function (obj, field) {
-	    addProp(obj, field.name, field.value);
-	    return obj;
-	  }, {});
-	
-	  function formToArr(form) {
-	    var inputs = form.querySelectorAll('input, textarea, select, [contenteditable=true]');
-	    var arr = [];
-	
-	    for (var i = 0; i < inputs.length; ++i) {
-	      var input = inputs[i],
-	          name = input.name || input.getAttribute('data-name'),
-	          val = input.value;
-	
-	      if (!name || (input.type === 'checkbox' || input.type === 'radio') && !input.checked) {
-	        continue;
-	      }
-	
-	      if (input.getAttribute('contenteditable') === 'true') {
-	        val = input.innerHTML;
-	      }
-	
-	      arr.push({
-	        name: name,
-	        value: val
-	      });
-	    }
-	
-	    return arr;
-	  }
-	
-	  function addProp(o, prop, val) {
-	    var props = prop.split('.');
-	    var lastProp = props.length - 1;
-	
-	    props.reduce(function (obj, prop, i) {
-	      return setProp(obj, prop, i === lastProp ? val : {});
-	    }, o);
-	  }
-	
-	  function setProp(obj, name, val) {
-	    if (name.slice(-2) === '[]') {
-	      makeArr(obj, name).push(val);
-	    } else if (obj[name]) {
-	      return obj[name];
-	    } else if (name[name.length - 1] === ']') {
-	      var arr = makeArr(obj, name);
-	
-	      if (arr.prevName === name) {
-	        return arr[arr.length - 1];
-	      }
-	
-	      arr.push(val);
-	      arr.prevName = name;
-	    } else {
-	      obj[name] = val;
-	    }
-	
-	    return val;
-	  }
-	
-	  function makeArr(obj, name) {
-	    var arrName = name.replace(/\[\d*\]/, '');
-	    return obj[arrName] || (obj[arrName] = []);
-	  }
-	}
-	
-	module.exports = {
-	  formToObj: formToObj
-	};
-
-/***/ },
-/* 564 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
 	var BinaryPjax = __webpack_require__(420);
 	var Content = __webpack_require__(456).Content;
 	var japanese_client = __webpack_require__(425).japanese_client;
-	var ApplicationsInit = __webpack_require__(565);
+	var ApplicationsInit = __webpack_require__(560);
 	
 	var AuthorisedApps = function () {
 	    var onLoad = function onLoad() {
@@ -76684,13 +76161,13 @@
 	module.exports = AuthorisedApps;
 
 /***/ },
-/* 565 */
+/* 560 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var ApplicationsUI = __webpack_require__(566);
-	var ApplicationsData = __webpack_require__(567);
+	var ApplicationsUI = __webpack_require__(561);
+	var ApplicationsData = __webpack_require__(562);
 	
 	var ApplicationsInit = function () {
 	    'use strict';
@@ -76719,7 +76196,7 @@
 	module.exports = ApplicationsInit;
 
 /***/ },
-/* 566 */
+/* 561 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -76729,7 +76206,7 @@
 	var localize = __webpack_require__(429).localize;
 	var Button = __webpack_require__(499).Button;
 	var FlexTableUI = __webpack_require__(558).FlexTableUI;
-	var ApplicationsData = __webpack_require__(567);
+	var ApplicationsData = __webpack_require__(562);
 	
 	var ApplicationsUI = function () {
 	    'use strict';
@@ -76806,8 +76283,10 @@
 	
 	    var clean = function clean() {
 	        $(container_selector + ' .error-msg').text('');
-	        flex_table.clear();
-	        flex_table = null;
+	        if (flex_table) {
+	            flex_table.clear();
+	            flex_table = null;
+	        }
 	    };
 	
 	    return {
@@ -76821,7 +76300,7 @@
 	module.exports = ApplicationsUI;
 
 /***/ },
-/* 567 */
+/* 562 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -76849,7 +76328,7 @@
 	module.exports = ApplicationsData;
 
 /***/ },
-/* 568 */
+/* 563 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -76902,7 +76381,7 @@
 	            $('#repeat_password_row').removeClass(hidden_class);
 	        }
 	        $form.removeClass(hidden_class);
-	        FormManager.init(form_id, [{ selector: '#cashier_password', validations: ['req', locked ? ['length', { min: 6, max: 25 }] : 'password'], request_field: locked ? 'unlock_password' : 'lock_password' }, { selector: '#repeat_cashier_password', validations: ['req', ['compare', { to: '#cashier_password' }]], exclude_request: 1 }, { request_field: 'cashier_password', value: 1 }]);
+	        FormManager.init(form_id, [{ selector: '#cashier_password', validations: ['req', locked ? ['length', { min: 6, max: 25 }] : 'password'], request_field: locked ? 'unlock_password' : 'lock_password', re_check_field: locked ? null : '#repeat_cashier_password' }, { selector: '#repeat_cashier_password', validations: ['req', ['compare', { to: '#cashier_password' }]], exclude_request: 1 }, { request_field: 'cashier_password', value: 1 }]);
 	        FormManager.handleSubmit({
 	            form_selector: form_id,
 	            fnc_response_handler: handleResponse
@@ -76943,7 +76422,7 @@
 	module.exports = CashierPassword;
 
 /***/ },
-/* 569 */
+/* 564 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -77101,12 +76580,12 @@
 	module.exports = FinancialAssessment;
 
 /***/ },
-/* 570 */
+/* 565 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var IPHistoryInit = __webpack_require__(571);
+	var IPHistoryInit = __webpack_require__(566);
 	var BinaryPjax = __webpack_require__(420);
 	var Content = __webpack_require__(456).Content;
 	var japanese_client = __webpack_require__(425).japanese_client;
@@ -77133,13 +76612,13 @@
 	module.exports = IPHistory;
 
 /***/ },
-/* 571 */
+/* 566 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var IPHistoryUI = __webpack_require__(572);
-	var IPHistoryData = __webpack_require__(573);
+	var IPHistoryUI = __webpack_require__(567);
+	var IPHistoryData = __webpack_require__(568);
 	
 	var IPHistoryInit = function () {
 	    'use strict';
@@ -77176,7 +76655,7 @@
 	module.exports = IPHistoryInit;
 
 /***/ },
-/* 572 */
+/* 567 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -77237,8 +76716,10 @@
 	
 	    var clean = function clean() {
 	        $(container_selector + ' .error-msg').text('');
-	        flex_table.clear();
-	        flex_table = null;
+	        if (flex_table) {
+	            flex_table.clear();
+	            flex_table = null;
+	        }
 	    };
 	
 	    var displayError = function displayError(error) {
@@ -77256,7 +76737,7 @@
 	module.exports = IPHistoryUI;
 
 /***/ },
-/* 573 */
+/* 568 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -77303,12 +76784,12 @@
 	module.exports = IPHistoryData;
 
 /***/ },
-/* 574 */
+/* 569 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var LimitsInit = __webpack_require__(575);
+	var LimitsInit = __webpack_require__(570);
 	var Content = __webpack_require__(456).Content;
 	
 	var Limits = function () {
@@ -77337,12 +76818,12 @@
 	module.exports = Limits;
 
 /***/ },
-/* 575 */
+/* 570 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var LimitsUI = __webpack_require__(576);
+	var LimitsUI = __webpack_require__(571);
 	var Client = __webpack_require__(426);
 	var localize = __webpack_require__(429).localize;
 	var elementInnerHtml = __webpack_require__(427).elementInnerHtml;
@@ -77424,7 +76905,7 @@
 	module.exports = LimitsInit;
 
 /***/ },
-/* 576 */
+/* 571 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -77497,7 +76978,7 @@
 	module.exports = LimitsUI;
 
 /***/ },
-/* 577 */
+/* 572 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -77535,344 +77016,219 @@
 	module.exports = Settings;
 
 /***/ },
-/* 578 */
+/* 573 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var showLoadingImage = __webpack_require__(417).showLoadingImage;
-	var Content = __webpack_require__(456).Content;
-	var ValidateV2 = __webpack_require__(559).ValidateV2;
-	var ValidationUI = __webpack_require__(561).ValidationUI;
-	var validate_object = __webpack_require__(561).validate_object;
-	var bind_validation = __webpack_require__(561).bind_validation;
 	var moment = __webpack_require__(304);
-	var dv = __webpack_require__(560);
-	var TimePicker = __webpack_require__(493).TimePicker;
-	var DatePicker = __webpack_require__(466).DatePicker;
-	var dateValueChanged = __webpack_require__(427).dateValueChanged;
-	var localize = __webpack_require__(429).localize;
 	var Client = __webpack_require__(426);
+	var localize = __webpack_require__(429).localize;
+	var dateValueChanged = __webpack_require__(427).dateValueChanged;
+	var Content = __webpack_require__(456).Content;
+	var FormManager = __webpack_require__(537);
+	var DatePicker = __webpack_require__(466).DatePicker;
+	var TimePicker = __webpack_require__(493).TimePicker;
 	
-	var SelfExclusionWS = function () {
+	var SelfExclusion = function () {
 	    'use strict';
 	
 	    var $form = void 0,
-	        $loading = void 0,
-	        fields = void 0;
+	        fields = void 0,
+	        self_exclusion_data = void 0;
 	
-	    var timeDateID = 'timeout_until_duration',
-	        timeID = 'timeout_until',
-	        dateID = 'exclude_until',
-	        errorClass = 'errorfield',
-	        hiddenClass = 'hidden';
+	    var form_id = '#frm_self_exclusion';
+	    var timeout_date_id = '#timeout_until_date';
+	    var timeout_time_id = '#timeout_until_time';
+	    var exclude_until_id = '#exclude_until';
+	    var error_class = 'errorfield';
+	    var hidden_class = 'invisible';
 	
-	    // ----------------------
-	    // ----- Get Values -----
-	    // ----------------------
-	    var getRequest = function getRequest() {
-	        BinarySocket.send({ get_self_exclusion: 1 });
-	    };
+	    var onLoad = function onLoad() {
+	        Content.populate();
 	
-	    var getResponse = function getResponse(response) {
-	        if (response.error) {
-	            if (response.error.code === 'ClientSelfExclusion') {
-	                Client.sendLogoutRequest();
-	            }
-	            if (response.error.message) {
-	                showPageError(response.error.message, true);
-	            }
-	            return false;
-	        }
-	        $loading.addClass(hiddenClass);
-	        $form.removeClass(hiddenClass);
-	        $.each(response.get_self_exclusion, function (key, value) {
-	            fields[key] = value + '';
-	            $form.find('#' + key).val(value);
-	        });
-	        return true;
-	    };
-	
-	    var initDatePicker = function initDatePicker() {
-	        var timePickerInst = new TimePicker('#' + timeID);
-	        timePickerInst.show();
-	        // 6 weeks
-	        var datePickerTime = new DatePicker('#' + timeDateID);
-	        datePickerTime.show({
-	            minDate: 'today',
-	            maxDate: 6 * 7
-	        });
-	        // 5 years
-	        var datePickerDate = new DatePicker('#' + dateID);
-	        datePickerDate.show({
-	            minDate: moment().add(6, 'months').add(1, 'day').toDate(),
-	            maxDate: 5 * 365
-	        });
-	        $('#' + timeDateID + ', #' + dateID).change(function () {
-	            dateValueChanged(this, 'date');
-	        });
-	    };
-	
-	    // ----------------------
-	    // ----- Set Values -----
-	    // ----------------------
-	    var setRequest = function setRequest(data) {
-	        data.set_self_exclusion = 1;
-	        BinarySocket.send(data);
-	    };
-	
-	    var setResponse = function setResponse(response) {
-	        if (response.error) {
-	            var errMsg = response.error.message;
-	            var field = response.error.field;
-	            if (field) {
-	                ValidationUI.draw('input[name=' + field + ']', errMsg);
-	            } else {
-	                showFormMessage(localize(errMsg), false);
-	            }
-	            return;
-	        }
-	        showFormMessage('Your changes have been updated.', true);
-	        Client.set('session_start', moment().unix()); // used to handle session duration limit
-	        getRequest();
-	    };
-	
-	    var validate = function validate(data) {
-	        if (data.exclude_until) {
-	            delete data.exclude_until;
-	            data.exclude_until = $('#' + dateID).attr('data-value');
-	        }
-	        if (data.timeout_until_duration) {
-	            delete data.timeout_until_duration;
-	            data.timeout_until_duration = $('#' + timeDateID).attr('data-value');
-	        }
-	        var info = validate_object(data, getSchema());
-	        info.errors = info.errors.filter(function (e) {
-	            return e.err !== EMPTY;
-	        });
-	        return info;
-	    };
-	
-	    var reallyInit = function reallyInit() {
-	        $form = $('#frmSelfExclusion');
-	        $loading = $('#loading');
-	
-	        // for error messages to show properly
-	        $('#' + timeID).attr('style', 'margin-bottom:10px');
-	
-	        showLoadingImage($loading);
+	        $form = $(form_id);
 	
 	        fields = {};
 	        $form.find('input').each(function () {
 	            fields[this.name] = '';
 	        });
 	
-	        bind_validation.simple($form[0], {
-	            validate: validate,
-	            submit: submitForm
-	        });
-	
 	        initDatePicker();
-	        getRequest();
+	        getData();
 	    };
 	
-	    var onLoad = function onLoad() {
-	        Content.populate();
-	        BinarySocket.init({
-	            onmessage: function onmessage(msg) {
-	                var response = JSON.parse(msg.data);
-	                var msg_type = response.msg_type;
-	                if (msg_type === 'get_self_exclusion') getResponse(response);else if (msg_type === 'set_self_exclusion') setResponse(response);
+	    var getData = function getData() {
+	        BinarySocket.send({ get_self_exclusion: 1 }).then(function (response) {
+	            if (response.error) {
+	                if (response.error.code === 'ClientSelfExclusion') {
+	                    Client.sendLogoutRequest();
+	                }
+	                if (response.error.message) {
+	                    $('#msg_error').html(response.error.message).removeClass(hidden_class);
+	                    $form.addClass(hidden_class);
+	                }
+	                return;
 	            }
+	
+	            $('#loading').addClass(hidden_class);
+	            $form.removeClass(hidden_class);
+	            self_exclusion_data = response.get_self_exclusion;
+	            $.each(self_exclusion_data, function (key, value) {
+	                fields[key] = value + '';
+	                $form.find('#' + key).val(value);
+	            });
+	            bindValidation();
 	        });
-	        reallyInit();
 	    };
 	
-	    // To propagate empty values.
-	    var EMPTY = function EMPTY() {};
-	    var allowEmpty = function allowEmpty(value) {
-	        return value.length > 0 ? dv.ok(value) : dv.fail(EMPTY);
-	    };
+	    var bindValidation = function bindValidation() {
+	        var validations = [{ request_field: 'set_self_exclusion', value: 1 }];
 	
-	    var afterToday = function afterToday(date) {
-	        return date.isAfter(moment()) ? dv.ok(date) : dv.fail('Exclude time must be after today.');
-	    };
+	        $form.find('input[type="text"]').each(function () {
+	            var id = $(this).attr('id');
 	
-	    // big unsigned integer.
-	    var big_uint = function big_uint(x) {
-	        return x.replace(/^0+/, '');
-	    };
+	            if (/(timeout_until|exclude_until)/.test(id)) return;
 	
-	    big_uint.gt = function (x, y) {
-	        var maxLength = Math.max(x.length, y.length);
-	        var lhs = leftPadZeros(x, maxLength);
-	        var rhs = leftPadZeros(y, maxLength);
-	        return lhs > rhs; // lexicographical comparison
-	    };
-	
-	    // Let empty values go to next validator, because it
-	    // is ok to put empty values at this stage.
-	    var numericOrEmpty = function numericOrEmpty(value) {
-	        if (!value) return dv.ok(value);
-	        return (/^\d+$/.test(value) ? dv.ok(big_uint(value)) : dv.fail('Please enter an integer value')
-	        );
-	    };
-	
-	    var leftPadZeros = function leftPadZeros(strint, zeroCount) {
-	        var result = strint;
-	        for (var i = 0; i < zeroCount - strint.length; i++) {
-	            result = '0' + result;
-	        }
-	        return result;
-	    };
-	
-	    var againstField = function againstField(key) {
-	        return function (value) {
-	            var old = fields[key];
-	            var err = localize('Please enter a number between 0 and [_1]', [old]);
-	            var hasOld = !!old;
-	            var isEmpty = value.length === 0;
-	            if (!hasOld) {
-	                return isEmpty ? dv.fail(EMPTY) : dv.ok(value);
+	            var checks = [];
+	            var options = { min: 0 };
+	            if (id in self_exclusion_data) {
+	                checks.push('req');
+	                options.max = self_exclusion_data[id];
+	            } else {
+	                options.allow_empty = true;
 	            }
-	            return isEmpty || big_uint.gt(value, old) ? dv.fail(err) : dv.ok(value);
-	        };
+	            checks.push(['number', options]);
+	
+	            if (id === 'session_duration_limit') {
+	                checks.push(['custom', { func: validSessionDuration, message: 'Session duration limit cannot be more than 6 weeks.' }]);
+	            }
+	
+	            validations.push({
+	                selector: '#' + id,
+	                validations: checks,
+	                exclude_if_empty: 1
+	            });
+	        });
+	
+	        validations.push({
+	            selector: timeout_date_id,
+	            request_field: 'timeout_until',
+	            re_check_field: timeout_time_id,
+	            exclude_if_empty: 1,
+	            value: getTimeout,
+	            validations: [['custom', { func: function func() {
+	                    return $(timeout_time_id).val() ? $(timeout_date_id).val().length : true;
+	                }, message: 'This field is required.' }], ['custom', { func: validDate, message: 'Please select a valid date.' }], ['custom', { func: function func(value) {
+	                    return !value.length || toMoment(value).isAfter(moment().subtract(1, 'days'), 'day');
+	                }, message: 'Time out must be after today.' }], ['custom', { func: function func(value) {
+	                    return !value.length || toMoment(value).isBefore(moment().add(6, 'weeks'));
+	                }, message: 'Time out cannot be more than 6 weeks.' }]]
+	        }, {
+	            selector: timeout_time_id,
+	            exclude_request: 1,
+	            re_check_field: timeout_date_id,
+	            validations: [['custom', { func: function func() {
+	                    return $(timeout_date_id).val() && toMoment($(timeout_date_id).val()).isSame(moment(), 'day') ? $(timeout_time_id).val().length : true;
+	                }, message: 'This field is required.' }], ['custom', { func: function func(value) {
+	                    return !value.length || !$(timeout_date_id).val() || getTimeout() > moment().valueOf() / 1000;
+	                }, message: 'Time out cannot be in the past.' }], ['custom', { func: validTime, message: 'Please select a valid time.' }]]
+	        }, {
+	            selector: exclude_until_id,
+	            exclude_if_empty: 1,
+	            value: function value() {
+	                return dateFormat(exclude_until_id);
+	            },
+	            validations: [['custom', { func: validDate, message: 'Please select a valid date.' }], ['custom', { func: function func(value) {
+	                    return !value.length || toMoment(value).isAfter(moment().add(6, 'months'));
+	                }, message: 'Exclude time cannot be less than 6 months.' }], ['custom', { func: function func(value) {
+	                    return !value.length || toMoment(value).isBefore(moment().add(5, 'years'));
+	                }, message: 'Exclude time cannot be for more than 5 years.' }]]
+	        });
+	
+	        FormManager.init(form_id, validations);
+	        FormManager.handleSubmit({
+	            form_selector: form_id,
+	            fnc_response_handler: setExclusionResponse,
+	            fnc_additional_check: additionalCheck,
+	            enable_button: true
+	        });
 	    };
 	
 	    var validSessionDuration = function validSessionDuration(value) {
-	        return +value <= moment.duration(6, 'weeks').as('minutes') ? dv.ok(value) : dv.fail('Session duration limit cannot be more than 6 weeks.');
+	        return +value <= moment.duration(6, 'weeks').as('minutes');
+	    };
+	    var validDate = function validDate(value) {
+	        return !value.length || moment(new Date(value), 'YYYY-MM-DD', true).isValid();
+	    };
+	    var validTime = function validTime(value) {
+	        return !value.length || moment(value, 'HH:mm', true).isValid();
 	    };
 	
-	    var validExclusionDate = function validExclusionDate(date) {
-	        var six_months = moment().add(moment.duration(6, 'months'));
-	        var five_years = moment().add(moment.duration(5, 'years'));
-	        return date.isBefore(six_months) && dv.fail('Exclude time cannot be less than 6 months.') || date.isAfter(five_years) && dv.fail('Exclude time cannot be for more than 5 years.') || dv.ok(date);
+	    var toMoment = function toMoment(value) {
+	        return moment(new Date(value));
+	    };
+	    var dateFormat = function dateFormat(elm_id) {
+	        return $(elm_id).val() ? toMoment($(elm_id).val()).format('YYYY-MM-DD') : '';
+	    };
+	    var getTimeout = function getTimeout() {
+	        return $(timeout_date_id).val() ? moment((dateFormat(timeout_date_id) + ' ' + $(timeout_time_id).val()).trim()).valueOf() / 1000 : '';
 	    };
 	
-	    var toDateString = function toDateString(date) {
-	        return dv.ok(date.format('YYYY-MM-DD'));
+	    var initDatePicker = function initDatePicker() {
+	        // timeout_until
+	        new TimePicker(timeout_time_id).show();
+	        new DatePicker(timeout_date_id).show({
+	            minDate: 'today',
+	            maxDate: 6 * 7 });
+	
+	        // exclude_until
+	        new DatePicker(exclude_until_id).show({
+	            minDate: moment().add(6, 'months').add(1, 'day').toDate(),
+	            maxDate: 5 * 365 });
+	
+	        $(timeout_date_id + ', ' + exclude_until_id).change(function () {
+	            dateValueChanged(this, 'date');
+	        });
 	    };
 	
-	    var allowEmptyUnless = function allowEmptyUnless(key) {
-	        return function (value, data) {
-	            if (value.length > 0) return dv.ok(value);
-	            if (data[key].length > 0) return dv.fail('Please select a valid date');
-	            return dv.fail(EMPTY);
-	        };
-	    };
+	    var additionalCheck = function additionalCheck(data) {
+	        var is_changed = Object.keys(data).some(function (key) {
+	            return (// using != in next line since response types is inconsistent
+	                key !== 'set_self_exclusion' && (!(key in self_exclusion_data) || self_exclusion_data[key] != data[key]) // eslint-disable-line eqeqeq
 	
-	    var schema = void 0;
-	    var getSchema = function getSchema() {
-	        if (schema) return schema;
-	        var V2 = ValidateV2;
-	        var validTime = V2.momentFmt('HH:mm', 'Please select a valid time');
-	        var validDate = V2.momentFmt('YYYY-MM-DD', 'Please select a valid date');
-	
-	        schema = {
-	            max_7day_losses: [numericOrEmpty, againstField('max_7day_losses')],
-	            max_7day_turnover: [numericOrEmpty, againstField('max_7day_turnover')],
-	            max_30day_losses: [numericOrEmpty, againstField('max_30day_losses')],
-	            max_30day_turnover: [numericOrEmpty, againstField('max_30day_turnover')],
-	            max_balance: [numericOrEmpty, againstField('max_balance')],
-	            max_losses: [numericOrEmpty, againstField('max_losses')],
-	            max_open_bets: [numericOrEmpty, againstField('max_open_bets')],
-	            max_turnover: [numericOrEmpty, againstField('max_turnover')],
-	            session_duration_limit: [numericOrEmpty, againstField('session_duration_limit'), validSessionDuration],
-	            exclude_until: [allowEmpty, validDate, afterToday, validExclusionDate, toDateString],
-	            // these two are combined.
-	            timeout_until_duration: [allowEmptyUnless('timeout_until'), validDate],
-	            timeout_until: [allowEmpty, validTime]
-	        };
-	        return schema;
-	    };
-	
-	    var detectChange = function detectChange(a, b) {
-	        var k_a = Object.keys(a);
-	        var k_b = Object.keys(b);
-	        if (k_a.length !== k_b.length) {
-	            return true;
-	        }
-	        for (var i = 0; i < k_a.length; i++) {
-	            var key = k_a[i];
-	            if (a[key] !== b[key]) return true;
-	        }
-	        return false;
-	    };
-	
-	    var submitForm = function submitForm(e, validation) {
-	        e.preventDefault();
-	        e.stopPropagation();
-	        clearError();
-	        var info = validateForm(validation);
-	        if (!info.valid) return;
-	        if (!info.changed) {
+	            );
+	        });
+	        if (!is_changed) {
 	            showFormMessage('You did not change anything.', false);
+	        }
+	
+	        var is_confirmed = true;
+	        if ('timeout_until' in data || 'exclude_until' in data) {
+	            is_confirmed = window.confirm(localize('When you click "OK" you will be excluded from trading on the site until the selected date.'));
+	        }
+	
+	        return is_changed && is_confirmed;
+	    };
+	
+	    var setExclusionResponse = function setExclusionResponse(response) {
+	        if (response.error) {
+	            var error_msg = response.error.message;
+	            var error_fld = response.error.field;
+	            if (error_fld) {
+	                $('#' + error_fld).siblings('.error-msg').removeClass(hidden_class).html(error_msg);
+	            } else {
+	                showFormMessage(localize(error_msg), false);
+	            }
 	            return;
 	        }
-	        if ('timeout_until' in info.data || 'exclude_until' in info.data) {
-	            if (!hasConfirmed()) return;
-	        }
-	        setRequest(info.data);
+	        showFormMessage('Your changes have been updated.', true);
+	        Client.set('session_start', moment().unix()); // used to handle session duration limit
+	        getData();
 	    };
 	
-	    var validateForm = function validateForm(validation) {
-	        var values = validation.values;
-	        var valid = validation.errors.length === 0;
-	
-	        // Do the date time addition and validation here
-	        var date = values.timeout_until_duration;
-	        if (date) {
-	            (function () {
-	                // If we've gotten this far then there must *not*
-	                // be an error with the timeout date.
-	                date = moment(date);
-	                var time = values.timeout_until;
-	                if (time) {
-	                    date = date.add(time.format('HH'), 'hours').add(time.format('mm'), 'minutes');
-	                }
-	                var six_weeks = moment().add(moment.duration(6, 'weeks'));
-	                var res = dv.first(date, [afterToday, dv.check(function (d) {
-	                    return !d.isAfter(six_weeks);
-	                }, 'Exclude time cannot be more than 6 weeks')]);
-	                if (!res.isOk) {
-	                    ValidationUI.draw('input[name=timeout_until_duration]', res.value[0]);
-	                    valid = false;
-	                } else {
-	                    delete values.timeout_until_duration;
-	                    values.timeout_until = date.unix();
-	                }
-	            })();
-	        }
-	
-	        return {
-	            data: values,
-	            valid: valid,
-	            changed: valid && detectChange(validation.raw, fields)
-	        };
-	    };
-	
-	    var hasConfirmed = function hasConfirmed() {
-	        var message = 'When you click "Ok" you will be excluded from trading on the site until the selected date.';
-	        return window.confirm(localize(message));
-	    };
-	
-	    // -----------------------------
-	    // ----- Message Functions -----
-	    // -----------------------------
-	    var showPageError = function showPageError(errMsg, hideForm) {
-	        $('#errorMsg').html(errMsg).removeClass(hiddenClass);
-	        if (hideForm) {
-	            $form.addClass(hiddenClass);
-	        }
-	    };
-	
-	    var clearError = function clearError() {
-	        $('#errorMsg').html('').addClass(hiddenClass);
-	        $('#formMessage').html('');
-	    };
-	
-	    var showFormMessage = function showFormMessage(msg, isSuccess) {
-	        $('#formMessage').attr('class', isSuccess ? 'success-msg' : errorClass).html(isSuccess ? '<ul class="checked"><li>' + localize(msg) + '</li></ul>' : localize(msg)).css('display', 'block').delay(5000).fadeOut(1000);
+	    var showFormMessage = function showFormMessage(msg, is_success) {
+	        $('#msg_form').attr('class', is_success ? 'success-msg' : error_class).html(is_success ? '<ul class="checked"><li>' + localize(msg) + '</li></ul>' : localize(msg)).css('display', 'block').delay(5000).fadeOut(1000);
 	    };
 	
 	    return {
@@ -77880,10 +77236,10 @@
 	    };
 	}();
 	
-	module.exports = SelfExclusionWS;
+	module.exports = SelfExclusion;
 
 /***/ },
-/* 579 */
+/* 574 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -77896,7 +77252,7 @@
 	var makeOption = __webpack_require__(427).makeOption;
 	var FormManager = __webpack_require__(537);
 	var moment = __webpack_require__(304);
-	__webpack_require__(580);
+	__webpack_require__(575);
 	
 	var SettingsDetailsWS = function () {
 	    'use strict';
@@ -78064,13 +77420,16 @@
 	                });
 	
 	                if (residence) {
-	                    $place_of_birth.html($options.html());
-	                    $tax_residence.html($options.html()).promise().done(function () {
-	                        setTimeout(function () {
-	                            $tax_residence.select2().val(get_settings_data.tax_residence.split(',')).trigger('change').removeClass('invisible');
-	                        }, 500);
-	                    });
-	                    $place_of_birth.val(get_settings_data.place_of_birth || residence);
+	                    (function () {
+	                        var tax_residence = get_settings_data.tax_residence;
+	                        $place_of_birth.html($options.html());
+	                        $tax_residence.html($options.html()).promise().done(function () {
+	                            setTimeout(function () {
+	                                $tax_residence.select2().val(tax_residence ? tax_residence.split(',') : '').trigger('change').removeClass('invisible');
+	                            }, 500);
+	                        });
+	                        $place_of_birth.val(get_settings_data.place_of_birth || residence);
+	                    })();
 	                } else {
 	                    $('#lbl_country').parent().replaceWith($('<select/>', { id: 'residence' }));
 	                    var $residence = $('#residence');
@@ -78142,7 +77501,7 @@
 	module.exports = SettingsDetailsWS;
 
 /***/ },
-/* 580 */
+/* 575 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var require;var require;var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/*!
@@ -83873,7 +83232,7 @@
 
 
 /***/ },
-/* 581 */
+/* 576 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -83928,7 +83287,7 @@
 	module.exports = TopUpVirtual;
 
 /***/ },
-/* 582 */
+/* 577 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -83965,7 +83324,7 @@
 	module.exports = LostPassword;
 
 /***/ },
-/* 583 */
+/* 578 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -83975,7 +83334,7 @@
 	var State = __webpack_require__(422).State;
 	var defaultRedirectUrl = __webpack_require__(424).defaultRedirectUrl;
 	var objectNotEmpty = __webpack_require__(417).objectNotEmpty;
-	var AccountOpening = __webpack_require__(584);
+	var AccountOpening = __webpack_require__(579);
 	var FormManager = __webpack_require__(537);
 	var toISOFormat = __webpack_require__(432).toISOFormat;
 	var moment = __webpack_require__(304);
@@ -84083,12 +83442,12 @@
 	module.exports = FinancialAccOpening;
 
 /***/ },
-/* 584 */
+/* 579 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var generateBirthDate = __webpack_require__(585);
+	var generateBirthDate = __webpack_require__(580);
 	var BinaryPjax = __webpack_require__(420);
 	var localize = __webpack_require__(429).localize;
 	var Client = __webpack_require__(426);
@@ -84096,7 +83455,7 @@
 	var makeOption = __webpack_require__(427).makeOption;
 	var FormManager = __webpack_require__(537);
 	var Cookies = __webpack_require__(423);
-	__webpack_require__(580);
+	__webpack_require__(575);
 	
 	var redirectCookie = function redirectCookie() {
 	    if (Client.get('has_real')) {
@@ -84248,7 +83607,7 @@
 	};
 
 /***/ },
-/* 585 */
+/* 580 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -84275,7 +83634,7 @@
 	module.exports = generateBirthDate;
 
 /***/ },
-/* 586 */
+/* 581 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -84283,7 +83642,7 @@
 	var BinaryPjax = __webpack_require__(420);
 	var Client = __webpack_require__(426);
 	var State = __webpack_require__(422).State;
-	var AccountOpening = __webpack_require__(584);
+	var AccountOpening = __webpack_require__(579);
 	var detect_hedging = __webpack_require__(427).detect_hedging;
 	var FormManager = __webpack_require__(537);
 	
@@ -84333,14 +83692,14 @@
 	module.exports = JapanAccOpening;
 
 /***/ },
-/* 587 */
+/* 582 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var BinaryPjax = __webpack_require__(420);
 	var Client = __webpack_require__(426);
-	var AccountOpening = __webpack_require__(584);
+	var AccountOpening = __webpack_require__(579);
 	var FormManager = __webpack_require__(537);
 	
 	var RealAccOpening = function () {
@@ -84376,7 +83735,7 @@
 	module.exports = RealAccOpening;
 
 /***/ },
-/* 588 */
+/* 583 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -84387,7 +83746,7 @@
 	var makeOption = __webpack_require__(427).makeOption;
 	var japanese_client = __webpack_require__(425).japanese_client;
 	var FormManager = __webpack_require__(537);
-	var TrafficSource = __webpack_require__(589).TrafficSource;
+	var TrafficSource = __webpack_require__(584).TrafficSource;
 	var Cookies = __webpack_require__(423);
 	
 	var VirtualAccOpening = function () {
@@ -84448,7 +83807,7 @@
 	        // Add TrafficSource parameters
 	        var utm_data = TrafficSource.getData();
 	
-	        var req = [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#client_password', validations: ['req', 'password'] }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#client_password' }]], exclude_request: 1 }, { selector: '#residence' }, { request_field: 'email_consent' }, { request_field: 'utm_source', value: TrafficSource.getSource(utm_data) }, { request_field: 'new_account_virtual', value: 1 }];
+	        var req = [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#client_password', validations: ['req', 'password'], re_check_field: '#repeat_password' }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#client_password' }]], exclude_request: 1 }, { selector: '#residence' }, { request_field: 'email_consent' }, { request_field: 'utm_source', value: TrafficSource.getSource(utm_data) }, { request_field: 'new_account_virtual', value: 1 }];
 	
 	        if (utm_data.utm_medium) req.push({ request_field: 'utm_medium', value: utm_data.utm_medium });
 	        if (utm_data.utm_campaign) req.push({ request_field: 'utm_campaign', value: utm_data.utm_campaign });
@@ -84518,7 +83877,7 @@
 	module.exports = VirtualAccOpening;
 
 /***/ },
-/* 589 */
+/* 584 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -84620,14 +83979,14 @@
 	};
 
 /***/ },
-/* 590 */
+/* 585 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var localize = __webpack_require__(429).localize;
 	var Login = __webpack_require__(474);
-	var generateBirthDate = __webpack_require__(585);
+	var generateBirthDate = __webpack_require__(580);
 	var FormManager = __webpack_require__(537);
 	
 	var ResetPassword = function () {
@@ -84675,7 +84034,7 @@
 	        });
 	
 	        var form_id = '#frm_reset_password';
-	        FormManager.init(form_id, [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#new_password', validations: ['req', 'password'] }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#new_password' }]], exclude_request: 1 }, { selector: '#date_of_birth', validations: ['req'] }, { request_field: 'reset_password', value: 1 }]);
+	        FormManager.init(form_id, [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#new_password', validations: ['req', 'password'], re_check_field: '#repeat_password' }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#new_password' }]], exclude_request: 1 }, { selector: '#date_of_birth', validations: ['req'] }, { request_field: 'reset_password', value: 1 }]);
 	
 	        FormManager.handleSubmit({
 	            form_selector: form_id,
@@ -84691,12 +84050,12 @@
 	module.exports = ResetPassword;
 
 /***/ },
-/* 591 */
+/* 586 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
-	var KnowledgeTestUI = __webpack_require__(592);
+	var KnowledgeTestUI = __webpack_require__(587);
 	var BinaryPjax = __webpack_require__(420);
 	var toJapanTimeIfNeeded = __webpack_require__(447).toJapanTimeIfNeeded;
 	var Header = __webpack_require__(513);
@@ -84926,7 +84285,7 @@
 	module.exports = KnowledgeTest;
 
 /***/ },
-/* 592 */
+/* 587 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -85027,29 +84386,30 @@
 	module.exports = KnowledgeTestUI;
 
 /***/ },
-/* 593 */
+/* 588 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var Client = __webpack_require__(426);
-	var Contents = __webpack_require__(594);
+	var Contents = __webpack_require__(589);
 	var Header = __webpack_require__(513);
 	var Language = __webpack_require__(421);
 	var Localize = __webpack_require__(429);
 	var localize = __webpack_require__(429).localize;
 	var Login = __webpack_require__(474);
-	var Menu = __webpack_require__(595);
+	var Menu = __webpack_require__(590);
 	var LocalStore = __webpack_require__(422).LocalStore;
 	var State = __webpack_require__(422).State;
 	var Url = __webpack_require__(424);
 	var checkLanguage = __webpack_require__(425).checkLanguage;
-	var TrafficSource = __webpack_require__(589).TrafficSource;
-	var RealityCheck = __webpack_require__(597);
+	var scrollToTop = __webpack_require__(539).scrollToTop;
+	var TrafficSource = __webpack_require__(584).TrafficSource;
+	var RealityCheck = __webpack_require__(592);
 	var Cookies = __webpack_require__(423);
-	var PushNotification = __webpack_require__(601);
-	__webpack_require__(599);
-	__webpack_require__(600);
+	var PushNotification = __webpack_require__(596);
+	__webpack_require__(594);
+	__webpack_require__(595);
 	
 	var Page = function () {
 	    'use strict';
@@ -85097,6 +84457,7 @@
 	                    // no default
 	                }
 	            });
+	            scrollToTop();
 	            LocalStore.set('active_loginid', match);
 	        });
 	    };
@@ -85201,7 +84562,7 @@
 	module.exports = Page;
 
 /***/ },
-/* 594 */
+/* 589 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -85231,13 +84592,13 @@
 	module.exports = Contents;
 
 /***/ },
-/* 595 */
+/* 590 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var Client = __webpack_require__(426);
-	__webpack_require__(596);
+	__webpack_require__(591);
 	
 	var Menu = function () {
 	    'use strict';
@@ -85354,7 +84715,7 @@
 	module.exports = Menu;
 
 /***/ },
-/* 596 */
+/* 591 */
 /***/ function(module, exports) {
 
 	"use strict";
@@ -85781,13 +85142,13 @@
 	}(jQuery);
 
 /***/ },
-/* 597 */
+/* 592 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var RealityCheckData = __webpack_require__(428);
-	var RealityCheckUI = __webpack_require__(598);
+	var RealityCheckUI = __webpack_require__(593);
 	var Client = __webpack_require__(426);
 	
 	var RealityCheck = function () {
@@ -85830,7 +85191,7 @@
 	module.exports = RealityCheck;
 
 /***/ },
-/* 598 */
+/* 593 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -85839,8 +85200,8 @@
 	var showLocalTimeOnHover = __webpack_require__(447).showLocalTimeOnHover;
 	var urlFor = __webpack_require__(424).urlFor;
 	var FormManager = __webpack_require__(537);
-	__webpack_require__(599);
-	__webpack_require__(600);
+	__webpack_require__(594);
+	__webpack_require__(595);
 	
 	var RealityCheckUI = function () {
 	    'use strict';
@@ -85979,7 +85340,7 @@
 	module.exports = RealityCheckUI;
 
 /***/ },
-/* 599 */
+/* 594 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -86016,7 +85377,7 @@
 	}
 
 /***/ },
-/* 600 */
+/* 595 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -86031,7 +85392,7 @@
 	}
 
 /***/ },
-/* 601 */
+/* 596 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -86039,7 +85400,7 @@
 	var Client = __webpack_require__(426);
 	var getLanguage = __webpack_require__(421).get;
 	var urlForStatic = __webpack_require__(424).urlForStatic;
-	var Pushwoosh = __webpack_require__(602).Pushwoosh;
+	var Pushwoosh = __webpack_require__(597).Pushwoosh;
 	
 	var BinaryPushwoosh = function () {
 	    var pw = new Pushwoosh();
@@ -86088,14 +85449,14 @@
 	module.exports = BinaryPushwoosh;
 
 /***/ },
-/* 602 */
+/* 597 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	exports.__esModule = true;
 	
-	var _Global = __webpack_require__(603);
+	var _Global = __webpack_require__(598);
 	
 	Object.defineProperty(exports, 'Pushwoosh', {
 	  enumerable: true,
@@ -86107,23 +85468,23 @@
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 /***/ },
-/* 603 */
+/* 598 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	exports.__esModule = true;
 	
-	var _storage = __webpack_require__(604),
-	    _functions = __webpack_require__(605),
-	    _Logger = __webpack_require__(606),
+	var _storage = __webpack_require__(599),
+	    _functions = __webpack_require__(600),
+	    _Logger = __webpack_require__(601),
 	    _Logger2 = _interopRequireDefault(_Logger),
-	    _SafariInit = __webpack_require__(607),
+	    _SafariInit = __webpack_require__(602),
 	    _SafariInit2 = _interopRequireDefault(_SafariInit),
-	    _WorkerInit = __webpack_require__(614),
+	    _WorkerInit = __webpack_require__(609),
 	    _WorkerInit2 = _interopRequireDefault(_WorkerInit),
-	    _API = __webpack_require__(612),
-	    _constants = __webpack_require__(613);
+	    _API = __webpack_require__(607),
+	    _constants = __webpack_require__(608);
 	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 	
@@ -86350,7 +85711,7 @@
 	exports.default = PushwooshGlobal;
 
 /***/ },
-/* 604 */
+/* 599 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -86448,7 +85809,7 @@
 	var keyValue = exports.keyValue = createKeyValue('keyValue');
 
 /***/ },
-/* 605 */
+/* 600 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -86578,7 +85939,7 @@
 	}
 
 /***/ },
-/* 606 */
+/* 601 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -86631,23 +85992,23 @@
 	exports.default = Logger;
 
 /***/ },
-/* 607 */
+/* 602 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	exports.__esModule = true;
 	
-	var _BaseInit2 = __webpack_require__(608),
+	var _BaseInit2 = __webpack_require__(603),
 	    _BaseInit3 = _interopRequireDefault(_BaseInit2),
-	    _createDoApiXHR = __webpack_require__(610),
+	    _createDoApiXHR = __webpack_require__(605),
 	    _createDoApiXHR2 = _interopRequireDefault(_createDoApiXHR),
-	    _API = __webpack_require__(612),
+	    _API = __webpack_require__(607),
 	    _API2 = _interopRequireDefault(_API),
-	    _PushwooshError = __webpack_require__(611),
+	    _PushwooshError = __webpack_require__(606),
 	    _PushwooshError2 = _interopRequireDefault(_PushwooshError),
-	    _functions = __webpack_require__(605),
-	    _constants = __webpack_require__(613);
+	    _functions = __webpack_require__(600),
+	    _constants = __webpack_require__(608);
 	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 	
@@ -86781,14 +86142,14 @@
 	exports.default = PushwooshSafari;
 
 /***/ },
-/* 608 */
+/* 603 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	exports.__esModule = true;
 	
-	var _eventemitter = __webpack_require__(609),
+	var _eventemitter = __webpack_require__(604),
 	    _eventemitter2 = _interopRequireDefault(_eventemitter);
 	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
@@ -86811,7 +86172,7 @@
 	exports.default = BaseInit;
 
 /***/ },
-/* 609 */
+/* 604 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -87106,7 +86467,7 @@
 
 
 /***/ },
-/* 610 */
+/* 605 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -87114,7 +86475,7 @@
 	exports.__esModule = true;
 	exports.default = createDoApiXHR;
 	
-	var _PushwooshError = __webpack_require__(611),
+	var _PushwooshError = __webpack_require__(606),
 	    _PushwooshError2 = _interopRequireDefault(_PushwooshError);
 	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
@@ -87166,7 +86527,7 @@
 	}
 
 /***/ },
-/* 611 */
+/* 606 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -87201,7 +86562,7 @@
 	exports.default = PushwooshError;
 
 /***/ },
-/* 612 */
+/* 607 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -87212,7 +86573,7 @@
 	
 	exports.createErrorAPI = createErrorAPI;
 	
-	var _functions = __webpack_require__(605);
+	var _functions = __webpack_require__(600);
 	
 	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 	
@@ -87304,7 +86665,7 @@
 	exports.default = PushwooshAPI;
 
 /***/ },
-/* 613 */
+/* 608 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -87331,24 +86692,24 @@
 	var keyLastSentAppOpen = exports.keyLastSentAppOpen = 'pushwooshLastSentAppOpen';
 
 /***/ },
-/* 614 */
+/* 609 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	exports.__esModule = true;
 	
-	var _storage = __webpack_require__(604),
-	    _BaseInit2 = __webpack_require__(608),
+	var _storage = __webpack_require__(599),
+	    _BaseInit2 = __webpack_require__(603),
 	    _BaseInit3 = _interopRequireDefault(_BaseInit2),
-	    _createDoApiXHR = __webpack_require__(610),
+	    _createDoApiXHR = __webpack_require__(605),
 	    _createDoApiXHR2 = _interopRequireDefault(_createDoApiXHR),
-	    _API = __webpack_require__(612),
+	    _API = __webpack_require__(607),
 	    _API2 = _interopRequireDefault(_API),
-	    _PushwooshError = __webpack_require__(611),
+	    _PushwooshError = __webpack_require__(606),
 	    _PushwooshError2 = _interopRequireDefault(_PushwooshError),
-	    _functions = __webpack_require__(605),
-	    _constants = __webpack_require__(613);
+	    _functions = __webpack_require__(600),
+	    _constants = __webpack_require__(608);
 	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 	
