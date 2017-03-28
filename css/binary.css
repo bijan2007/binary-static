@@ -5323,9 +5323,6 @@ body.JA #tradingtimes-forex div.table-header:nth-of-type(n + 3), body.JA #tradin
 body.JA #bet_guide_content div:nth-child(1) {
   display: none !important;
 }
-body.JA .languages {
-  display: none;
-}
 body.JA #header #menu-top li {
   white-space: nowrap;
 }
@@ -5408,9 +5405,6 @@ body.ID #footer #social-networks {
 }
 body.ID .id-hide {
   display: none !important;
-}
-body.ID .languages {
-  display: none;
 }
 body.ID .app-store-badge {
   background-image: url("../images/pages/applications/appstore_id.svg");
