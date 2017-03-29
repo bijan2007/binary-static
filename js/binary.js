@@ -68421,19 +68421,23 @@
 	        } else if (options.type === 'float' && options.decimals && !new RegExp('^\\d+(\\.\\d{' + options.decimals.replace(/ /g, '') + '})?$').test(value)) {
 	            is_ok = false;
 	            message = localize('Only [_1] decimal points are allowed.', [options.decimals]);
-	        } else if ('min' in options && 'max' in options && (+value < +options.min || compareBigUnsignedInt(value, options.max) === 1)) {
+	        } else if ('min' in options && 'max' in options && (+value < +options.min || isMoreThanMax(value, options))) {
 	            is_ok = false;
 	            message = localize('Should be between [_1] and [_2]', [options.min, options.max]);
 	        } else if ('min' in options && +value < +options.min) {
 	            is_ok = false;
 	            message = localize('Should be more than [_1]', [options.min]);
-	        } else if ('max' in options && compareBigUnsignedInt(value, options.max) === 1) {
+	        } else if ('max' in options && isMoreThanMax(value, options)) {
 	            is_ok = false;
 	            message = localize('Should be less than [_1]', [options.max]);
 	        }
 	
 	        validators_map.number.message = message;
 	        return is_ok;
+	    };
+	
+	    var isMoreThanMax = function isMoreThanMax(value, options) {
+	        return options.type === 'float' ? +value > +options.max : compareBigUnsignedInt(value, options.max) === 1;
 	    };
 	
 	    var validators_map = {
@@ -74626,6 +74630,10 @@
 	        $transfer = void 0;
 	
 	    var populateAccounts = function populateAccounts(response) {
+	        if (response.error) {
+	            $('#error_message').find('p').text(response.error.message).end().removeClass(hidden_class);
+	            return;
+	        }
 	        accounts = response.accounts;
 	        var $form = $(form_id);
 	        $transfer = $form.find('#transfer');
@@ -83251,7 +83259,8 @@
 	    };
 	
 	    var getTaxResidence = function getTaxResidence() {
-	        return (State.get(['response', 'get_settings', 'get_settings'] || {}).tax_residence || '').split(',');
+	        var tax_residence = State.get(['response', 'get_settings', 'get_settings'] || {}).tax_residence;
+	        return tax_residence ? tax_residence.split(',') : '';
 	    };
 	
 	    var handleState = function handleState(states_list, form_id, getValidations) {
