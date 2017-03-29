@@ -18536,7 +18536,7 @@
 	    };
 	
 	    var setResidence = function setResidence(residence) {
-	        if (residence && !Cookies.get('residence')) {
+	        if (residence) {
 	            Client.setCookie('residence', residence);
 	            Client.set('residence', residence);
 	            send({ landing_company: residence });
@@ -67968,10 +67968,6 @@
 	            var $upgrade_msg = $('.upgrademessage');
 	            var hidden_class = 'invisible';
 	
-	            var hideUpgrade = function hideUpgrade() {
-	                $upgrade_msg.addClass(hidden_class);
-	            };
-	
 	            var showUpgrade = function showUpgrade(url, msg) {
 	                $upgrade_msg.removeClass(hidden_class).find('a').removeClass(hidden_class).attr('href', urlFor(url)).html($('<span/>', { text: localize(msg) }));
 	            };
@@ -68010,7 +68006,7 @@
 	                        showUpgrade('new_account/realws', 'Upgrade to a Real Account');
 	                    }
 	                } else {
-	                    hideUpgrade();
+	                    $upgrade_msg.find('a').addClass(hidden_class).html('');
 	                }
 	            } else {
 	                var show_financial = false;
@@ -68024,7 +68020,7 @@
 	                    $('#virtual-text').parent().addClass('invisible');
 	                    showUpgrade('new_account/maltainvestws', 'Open a Financial Account');
 	                } else {
-	                    hideUpgrade();
+	                    $upgrade_msg.addClass(hidden_class);
 	                }
 	            }
 	        });
@@ -83111,10 +83107,8 @@
 	                    value = moment_val.format('DD MMM, YYYY');
 	                    $element.attr('data-value', toISOFormat(moment_val));
 	                    $('.input-disabled').attr('disabled', 'disabled');
-	                } else if (key === 'tax_residence' && value) {
-	                    value = value.split(',');
 	                }
-	                if (value) $element.val(value).trigger('change');
+	                if (value) $element.val(value);
 	            });
 	        });
 	
@@ -83245,13 +83239,19 @@
 	
 	                $('#lbl_residence').html($('<strong/>', { text: residence_text }));
 	                $place_of_birth.html($options.html()).val(residence_value);
-	                $tax_residence.html($options.html()).promise().done(function () {
-	                    setTimeout(function () {
-	                        $tax_residence.select2().val(residence_value).trigger('change').removeClass('invisible');
-	                    }, 500);
-	                });
+	                if ($tax_residence) {
+	                    $tax_residence.html($options.html()).promise().done(function () {
+	                        setTimeout(function () {
+	                            $tax_residence.select2().val(getTaxResidence() || residence_value).trigger('change').removeClass('invisible');
+	                        }, 500);
+	                    });
+	                }
 	            })();
 	        }
+	    };
+	
+	    var getTaxResidence = function getTaxResidence() {
+	        return (State.get(['response', 'get_settings', 'get_settings'] || {}).tax_residence || '').split(',');
 	    };
 	
 	    var handleState = function handleState(states_list, form_id, getValidations) {
@@ -83536,7 +83536,7 @@
 	        // Add TrafficSource parameters
 	        var utm_data = TrafficSource.getData();
 	
-	        var req = [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#client_password', validations: ['req', 'password'], re_check_field: '#repeat_password' }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#client_password' }]], exclude_request: 1 }, { selector: '#residence' }, { request_field: 'email_consent' }, { request_field: 'utm_source', value: TrafficSource.getSource(utm_data) }, { request_field: 'new_account_virtual', value: 1 }];
+	        var req = [{ selector: '#verification_code', validations: ['req', 'email_token'] }, { selector: '#client_password', validations: ['req', 'password'], re_check_field: '#repeat_password' }, { selector: '#repeat_password', validations: ['req', ['compare', { to: '#client_password' }]], exclude_request: 1 }, { selector: '#residence' }, { selector: '#email_consent' }, { request_field: 'utm_source', value: TrafficSource.getSource(utm_data) }, { request_field: 'new_account_virtual', value: 1 }];
 	
 	        if (utm_data.utm_medium) req.push({ request_field: 'utm_medium', value: utm_data.utm_medium });
 	        if (utm_data.utm_campaign) req.push({ request_field: 'utm_campaign', value: utm_data.utm_campaign });
