@@ -869,6 +869,9 @@ html.mm-right.mm-opening body .mm-page, html.mm-right.mm-opening body #mm-blocke
       -ms-flex-align: center;
           align-items: center;
 }
+.home-jp-content #email {
+  border: 1px solid #ccc;
+}
 
 @media screen and (max-width: 768px) {
   .home-jp-content .xquote {
