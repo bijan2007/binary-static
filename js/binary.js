@@ -18395,7 +18395,6 @@
 	
 	    var binarySocket = void 0,
 	        bufferedSends = [],
-	        manualClosed = false,
 	        events = {},
 	        authorized = false,
 	        req_number = 0,
@@ -18405,7 +18404,8 @@
 	    var timeouts = {};
 	    var socketUrl = getSocketURL() + '?app_id=' + getAppId() + '&l=' + getLanguage();
 	    var promises = {};
-	    var no_duplicate_requests = ['authorize', 'get_settings', 'residence_list', 'landing_company'];
+	    var no_duplicate_requests = ['authorize', 'get_settings', 'residence_list', 'landing_company', 'payout_currencies'];
+	    var sent_requests = [];
 	    var waiting_list = {
 	        items: {},
 	        add: function add(msg_type, promise_obj) {
@@ -18478,18 +18478,26 @@
 	        return promise_obj.promise;
 	    };
 	
-	    var send = function send(data, force_send) {
+	    var send = function send(data, force_send, msg_type) {
 	        var promise_obj = new PromiseClass();
 	
-	        if (!force_send) {
-	            var msg_type = no_duplicate_requests.find(function (c) {
-	                return c in data;
-	            });
+	        msg_type = msg_type || no_duplicate_requests.find(function (c) {
+	            return c in data;
+	        });
+	        if (!force_send && msg_type) {
 	            var last_response = State.get(['response', msg_type]);
 	            if (last_response) {
 	                promise_obj.resolve(last_response);
 	                return promise_obj.promise;
+	            } else if (sent_requests.indexOf(msg_type) >= 0) {
+	                return wait(msg_type).then(function (response) {
+	                    promise_obj.resolve(response);
+	                    return promise_obj.promise;
+	                });
 	            }
+	        }
+	        if (msg_type) {
+	            sent_requests.push(msg_type);
 	        }
 	
 	        if (!data.req_id) {
@@ -18552,7 +18560,6 @@
 	        }
 	        if ((typeof es === 'undefined' ? 'undefined' : _typeof(es)) === 'object') {
 	            bufferedSends = [];
-	            manualClosed = false;
 	            events = es;
 	            clearTimeouts();
 	        }
@@ -18705,9 +18712,10 @@
 	
 	        binarySocket.onclose = function () {
 	            authorized = false;
+	            sent_requests = [];
 	            clearTimeouts();
 	
-	            if (!manualClosed && wrongAppId !== getAppId()) {
+	            if (wrongAppId !== getAppId()) {
 	                (function () {
 	                    var toCall = State.get('is_trading') ? TradePage.onDisconnect : State.get('is_beta_trading') ? TradePage_Beta.onDisconnect : State.get('is_mb_trading') ? MBTradePage.onDisconnect : '';
 	                    if (toCall) {
@@ -18730,18 +18738,8 @@
 	        };
 	    };
 	
-	    var close = function close() {
-	        manualClosed = true;
-	        bufferedSends = [];
-	        events = {};
-	        if (binarySocket) {
-	            binarySocket.close();
-	        }
-	    };
-	
 	    var clear = function clear() {
 	        bufferedSends = [];
-	        manualClosed = false;
 	        events = {};
 	    };
 	
@@ -18749,7 +18747,6 @@
 	        init: init,
 	        wait: wait,
 	        send: send,
-	        close: close,
 	        socket: function socket() {
 	            return binarySocket;
 	        },
@@ -18792,6 +18789,7 @@
 	var TradingAnalysis = __webpack_require__(440).TradingAnalysis;
 	var chartFrameCleanup = __webpack_require__(457).chartFrameCleanup;
 	var forgetTradingStreams = __webpack_require__(461).forgetTradingStreams;
+	var Client = __webpack_require__(427);
 	var localize = __webpack_require__(430).localize;
 	var State = __webpack_require__(422).State;
 	var JapanPortfolio = __webpack_require__(445).JapanPortfolio;
@@ -18802,7 +18800,7 @@
 	
 	    var onLoad = function onLoad() {
 	        State.set('is_mb_trading', true);
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            MBDisplayCurrencies('', false);
 	        }
 	        BinarySocket.init({
@@ -18819,7 +18817,7 @@
 	            MBTradingEvents.init();
 	        }
 	
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            MBDisplayCurrencies('', false);
 	            MBSymbols.getSymbols(1);
 	        } else {
@@ -34410,7 +34408,7 @@
 	            } else if (website_status.website_status.clients_country === 'jp' || getLanguage() === 'JA') {
 	                req.landing_company = 'japan';
 	            }
-	            BinarySocket.send(req);
+	            BinarySocket.send(req, false, 'active_symbols');
 	            _need_page_update = update;
 	        });
 	    };
@@ -35538,7 +35536,6 @@
 	        if (/no-reality-check/.test(hash)) {
 	            window.location.hash = hash.replace('no-reality-check', '');
 	        }
-	        sessionStorage.setItem('currencies', '');
 	    };
 	
 	    var getToken = function getToken(client_loginid) {
@@ -45063,7 +45060,7 @@
 	                MBNotifications.hide('CONNECTION_ERROR');
 	                MBContract.setContractsResponse(response);
 	                MBProcess.processContract(response);
-	            } else if (type === 'payout_currencies' && response.hasOwnProperty('echo_req') && (!response.echo_req.hasOwnProperty('passthrough') || !response.echo_req.passthrough.hasOwnProperty('handler'))) {
+	            } else if (type === 'payout_currencies') {
 	                Client.set('currencies', response.payout_currencies.join(','));
 	                MBDisplayCurrencies('', false);
 	                MBSymbols.getSymbols(1);
@@ -45415,6 +45412,7 @@
 	var PortfolioWS = __webpack_require__(446);
 	var ViewPopupWS = __webpack_require__(449);
 	var BinaryPjax = __webpack_require__(420);
+	var Client = __webpack_require__(427);
 	var State = __webpack_require__(422).State;
 	var jpClient = __webpack_require__(425).jpClient;
 	var Guide = __webpack_require__(502);
@@ -45431,7 +45429,7 @@
 	            return;
 	        }
 	        State.set('is_beta_trading', true);
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            displayCurrencies();
 	        }
 	        BinarySocket.init({
@@ -45448,7 +45446,7 @@
 	            TradingEvents_Beta.init();
 	        }
 	
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            displayCurrencies();
 	            Symbols.getSymbols(1);
 	        } else {
@@ -49810,7 +49808,7 @@
 	                Notifications.hide('CONNECTION_ERROR');
 	                processContract_Beta(response);
 	                window.contracts_for = response;
-	            } else if (type === 'payout_currencies' && response.hasOwnProperty('echo_req') && (!response.echo_req.hasOwnProperty('passthrough') || !response.echo_req.passthrough.hasOwnProperty('handler'))) {
+	            } else if (type === 'payout_currencies') {
 	                Client.set('currencies', response.payout_currencies.join(','));
 	                displayCurrencies();
 	                Symbols.getSymbols(1);
@@ -67124,6 +67122,7 @@
 	var Symbols = __webpack_require__(443).Symbols;
 	var ViewPopupWS = __webpack_require__(449);
 	var BinaryPjax = __webpack_require__(420);
+	var Client = __webpack_require__(427);
 	var localize = __webpack_require__(430).localize;
 	var State = __webpack_require__(422).State;
 	var jpClient = __webpack_require__(425).jpClient;
@@ -67139,7 +67138,7 @@
 	            return;
 	        }
 	        State.set('is_trading', true);
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            displayCurrencies();
 	        }
 	        BinarySocket.init({
@@ -67156,7 +67155,7 @@
 	            TradingEvents.init();
 	        }
 	
-	        if (sessionStorage.getItem('currencies')) {
+	        if (Client.get('currencies')) {
 	            displayCurrencies();
 	            Symbols.getSymbols(1);
 	        } else {
@@ -67770,7 +67769,7 @@
 	                Notifications.hide('CONNECTION_ERROR');
 	                processContract(response);
 	                window.contracts_for = response;
-	            } else if (type === 'payout_currencies' && response.hasOwnProperty('echo_req') && (!response.echo_req.hasOwnProperty('passthrough') || !response.echo_req.passthrough.hasOwnProperty('handler'))) {
+	            } else if (type === 'payout_currencies') {
 	                Client.set('currencies', response.payout_currencies.join(','));
 	                displayCurrencies();
 	                Symbols.getSymbols(1);
