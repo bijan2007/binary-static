@@ -47,7 +47,7 @@ cat /tmp/travis-request-output.$$.txt
 exit 1
 fi
 
-sleep 1m
+#sleep 1m
 
 #The 1m sleep is to allow Travis to trigger the dependent build:
 echo "Waiting for the dependent build to start..."
