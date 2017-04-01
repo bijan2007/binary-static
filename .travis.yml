@@ -1,12 +1,11 @@
 sudo: false
-language: node_js
 # safelist
 branches:
   only:
    - gh-pages
 before_script:
    - gem install travis
-after_script:
+script:
    - chmod +x trigger.sh
    - chmod +x get-build-status.sh
    - ./trigger.sh binary-com binary-static-ci gh-pages $TRAVIS_ACCESS_TOKEN
