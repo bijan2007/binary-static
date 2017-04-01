@@ -10,3 +10,6 @@ script:
    - chmod +x get-build-status.sh
    - ./trigger.sh binary-com binary-static-ci gh-pages $TRAVIS_ACCESS_TOKEN
    - ./get-build-status.sh binary-com binary-static-ci $TRAVIS_ACCESS_TOKEN
+notifications:
+    email: false  
+ 
