@@ -18,7 +18,6 @@ fi
 # for debugging
 echo "USER=$USER"
 echo "REPO=$REPO"
-#echo "TOKEN=$TOKEN"
 echo "BRANCH=$BRANCH"
 echo "MESSAGE=$MESSAGE"
 
