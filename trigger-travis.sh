@@ -45,8 +45,3 @@ elif grep -q 'access denied' /tmp/travis-request-output.$$.txt; then
 cat /tmp/travis-request-output.$$.txt
 exit 1
 fi
-
-sleep 90s
-
-#The 90 secs sleep is to allow Travis to trigger the dependent build:
-echo "Waiting for the dependent build to start..."
