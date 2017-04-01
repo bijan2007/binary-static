@@ -1,3 +1,8 @@
+# safelist
+branches:
+  only:
+   - gh-pages
+
 before_script:
    - gem install travis
 script:
